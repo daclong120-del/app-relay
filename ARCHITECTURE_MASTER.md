@@ -1,808 +1,725 @@
-# APK Acquisition Backend — SinoMedia Release Ops Integration Architecture
+# Release Ops — Architecture Document
 
-> Document status: **Target / To-be architecture**  
-> Integration target: **SinoMedia `release-ops` control plane**  
-> Source grounding: `ARCHITECTURE_MASTER.md` and `pull-from-play (2).md` supplied by the user.  
-> Implementation status: the SinoMedia Release Ops dashboard/data layer exists; the Release Ops Worker Gateway, worker runtime, artifact repository, job-event repository, Realtime wiring, and APK acquisition capability are not yet implemented according to the supplied master document.
+> Scope: Tài liệu kiến trúc cho module **Release Ops** trong hệ thống SinoMedia. Được viết dựa trên source code thực tế — không fabrication.
 
 ## Table of Contents
 
-1. [Project Overview](#1-project-overview)
-2. [Tech Stack](#2-tech-stack)
-3. [Folder Structure](#3-folder-structure)
-4. [System Architecture](#4-system-architecture)
-5. [Module Breakdown](#5-module-breakdown)
-6. [Request Flow](#6-request-flow)
-7. [Authentication](#7-authentication)
-8. [Authorization](#8-authorization)
-9. [Database](#9-database)
-10. [API Architecture](#10-api-architecture)
-11. [Business Flows](#11-business-flows)
-12. [Dependency Graph](#12-dependency-graph)
-13. [External Services](#13-external-services)
-14. [Configuration](#14-configuration)
-15. [Logging](#15-logging)
-16. [Error Handling](#16-error-handling)
-17. [Security](#17-security)
-18. [Performance](#18-performance)
-19. [Scalability](#19-scalability)
-20. [Deployment](#20-deployment)
-21. [Testing](#21-testing)
-22. [Coding Convention](#22-coding-convention)
-23. [Design Patterns](#23-design-patterns)
-24. [Strengths](#24-strengths)
-25. [Technical Debt and Risks](#25-technical-debt-and-risks)
-26. [Implementation Plan](#26-implementation-plan)
-27. [Appendix](#27-appendix)
+- [1. Project Overview](#1-project-overview)
+- [2. Tech Stack](#2-tech-stack)
+- [3. Folder Structure](#3-folder-structure)
+- [4. System Architecture](#4-system-architecture)
+- [5. Module Breakdown](#5-module-breakdown)
+- [6. Request Flow](#6-request-flow)
+- [7. Authentication](#7-authentication)
+- [8. Authorization](#8-authorization)
+- [9. Database](#9-database)
+- [10. API Architecture](#10-api-architecture)
+- [11. Business Flow](#11-business-flow)
+- [12. Dependency Graph](#12-dependency-graph)
+- [13. External Services](#13-external-services)
+- [14. Configuration](#14-configuration)
+- [15. Logging](#15-logging)
+- [16. Error Handling](#16-error-handling)
+- [17. Security](#17-security)
+- [18. Performance](#18-performance)
+- [19. Scalability](#19-scalability)
+- [20. Deployment](#20-deployment)
+- [21. Testing](#21-testing)
+- [22. Coding Convention](#22-coding-convention)
+- [23. Design Pattern](#23-design-pattern)
+- [24. Strengths](#24-strengths)
+- [25. Technical Debt](#25-technical-debt)
+- [26. Improvement Proposal](#26-improvement-proposal)
+- [27. Appendix](#27-appendix)
+
+---
 
 ## 1. Project Overview
 
-### 1.1 Goal
+**Business domain:** Google Play Store release lifecycle management — upload AAB, staged rollout, promote/halt, batch operations, ASO analytics, Target SDK compliance, and worker fleet orchestration.
 
-Add APK acquisition to SinoMedia as a **detached Release Ops execution backend**, not as a second standalone web system.
+**Overall architecture:** Modular monolith embedded inside the SinoMedia Next.js 16 dashboard.
 
-An admin submits a Google Play URL from the existing Next.js dashboard. The request becomes a `release_ops_jobs` record with `job_type = 'pull_apk'`. A dedicated APK worker running outside Vercel claims the job through the existing planned Release Ops Worker Gateway, controls an Android device through ADB, installs the app from Google Play, pulls `base.apk` plus all installed split APKs, scrapes the Play listing, packages the result, uploads it directly to private Supabase Storage, and reports progress/result metadata back to the dashboard.
-
-### 1.2 Input and output
-
-| Direction | Contract |
+| Layer | Technology |
 | --- | --- |
-| Input | Google Play details URL, for example `https://play.google.com/store/apps/details?id=com.example.app&hl=en` |
-| Derived identity | Android package ID from the URL `id` parameter |
-| Durable output | One private ZIP object containing APK splits, listing metadata, icon, screenshots, package diagnostics, and manifest |
-| Web-visible output | Job timeline, progress, version, split count, screenshot count, archive size/checksum, expiry, and authorized download action |
+| Frontend | Next.js 16 App Router, React 19, `use client` pages |
+| Backend | Next.js Server Actions + Service Layer + Repository Layer |
+| Database | Supabase (PostgreSQL) — 10 `release_ops_*` tables |
+| Worker Runtime | Windows Server 2012 VPS fleet (outbound polling, not yet implemented in SinoMedia) |
+| External | Google Play Publishing API, Reporting GCS |
+| Infrastructure | Vercel (dashboard hosting), Supabase (DB + Auth + Realtime) |
 
-The ZIP contains a device-specific split set, not necessarily one universal APK:
+**Current state:**
+- Dashboard: 9 pages, all using real Supabase data
+- Data layer: 9 repositories, 1 service file (877 lines), 21 server actions
+- Worker Gateway API: Not yet implemented
+- Worker Runtime: External project (`release-ops`), not integrated into SinoMedia
 
-```text
-com.example.app/
-├── base.apk
-├── split_config.*.apk
-├── PULL_MANIFEST.txt
-├── package-info.txt
-├── device-dir.listing
-└── playstore/
-    ├── description.md
-    ├── listing.json
-    ├── icon.png
-    ├── page.html
-    └── screenshots/
-        └── screenshot_XX.png
-```
-
-### 1.3 Integration principle
-
-APK acquisition extends the existing Release Ops architecture:
-
-| Concern | System of record / owner |
-| --- | --- |
-| User session and admin access | Existing Supabase Auth and dashboard middleware |
-| User-triggered mutation | Existing Server Action pattern with `verifyCSRF()` and `requireAdmin()` |
-| Application registry | Existing `release_ops_apps` |
-| Queue and lease | Existing planned `release_ops_jobs` plus service-role-only claim RPC |
-| Progress timeline | Existing planned `release_ops_job_events` |
-| Worker registry | Existing `release_ops_workers` |
-| Artifact metadata | Existing planned `release_ops_artifacts` |
-| Durable binary | New private Supabase Storage bucket |
-| Audit history | Existing `release_ops_audits` |
-| Live dashboard updates | Planned Supabase Realtime publication |
-| Android execution | New detached `apk-pull-worker` capability |
-
-The design intentionally does **not** introduce a second database, a second public API, or a separate user/authentication system.
-
-### 1.4 Architecture style
-
-- **Control plane:** existing Next.js 16 dashboard/API on Vercel plus Supabase.
-- **Execution plane:** detached long-running worker on a device-capable host.
-- **Communication:** worker-initiated outbound HTTPS polling only.
-- **Persistence:** Supabase PostgreSQL for state; private Supabase Storage for archives.
-- **Scheduling:** generic Release Ops jobs with leases, heartbeat, capability routing, retry, and dead-letter state.
-- **Device concurrency:** one active APK job per configured ADB device.
-
-### 1.5 In scope
-
-- Dashboard form and job/detail views under Release Ops.
-- `pull_apk` job creation, cancellation, retry, progress, expiry, download, and deletion.
-- Worker registration and `pull_apk` capability advertisement.
-- Atomic capability-aware job claim.
-- Google Play listing scrape.
-- AVD/physical device readiness and Play Store UI automation.
-- Pulling `base.apk` and all paths returned by `pm path`.
-- Validation, manifest, ZIP, direct private-object upload, local cleanup, and device cleanup.
-- Realtime job/event updates and audit records.
-
-### 1.6 Out of scope
-
-- Third-party APK mirrors such as APKMirror/APKPure.
-- Bypassing paid apps, approvals, licensing, regional restrictions, or Play authentication.
-- Running Android emulator/ADB inside Vercel functions.
-- Sending large ZIP files through Vercel Server Actions or Gateway request bodies.
-- Giving a worker the Supabase service-role key.
-- Running `pnpm aaa analyze` unless a separate explicit job type is added later.
+---
 
 ## 2. Tech Stack
 
-### 2.1 Existing and confirmed from `ARCHITECTURE_MASTER.md`
-
-| Layer | Existing technology |
-| --- | --- |
-| Dashboard | Next.js 16, App Router, SSR, Server Actions |
-| Hosting | Vercel target/evidence in master architecture |
-| Identity | Supabase Auth |
-| Database | Supabase PostgreSQL and RPC |
-| Live updates | Supabase Realtime usage exists elsewhere; Release Ops wiring is planned |
-| Data access | Service → Repository → Supabase SSR/service client |
-| Dashboard guards | `requireAdmin()` and `verifyCSRF()` |
-| Worker auth | SHA-256 token hashes in `api_tokens`, status/expiry/scope checks |
-| Worker pattern | Outbound polling through a purpose-built Worker Gateway |
-| Existing worker deployment | Docker Compose pattern exists for crawler runtime |
-
-### 2.2 Proposed APK worker stack
-
-| Concern | Proposed choice | Reason |
+| Category | Technology | Evidence |
 | --- | --- | --- |
-| Runtime | TypeScript on Node.js LTS | Matches dashboard language and fits process/HTTP orchestration |
-| Packaging | Separate workspace package/service: `workers/apk-pull-worker` | Clear execution boundary without a new web app |
-| HTTP | Undici/native fetch | Poll gateway, fetch listing, upload object |
-| Validation | Zod | Shared DTO and environment validation |
-| Process control | `node:child_process.spawn` with argument arrays | Avoid shell interpolation around ADB/package values |
-| Listing parser | Isolated adapter using a maintained HTML parser | Google Play markup is volatile |
-| UI parsing | UIAutomator XML parser | Exact Install/Accept/Continue state detection |
-| Archive/hash | Streaming ZIP and SHA-256 | Avoid loading APKs into memory |
-| Logging | Structured JSON, compatible with existing operations stack | Job/worker/stage correlation |
-| Device tools | ADB, Android SDK Emulator or physical Android device | Required by pull pipeline |
-| Worker deployment | Dockerized Node worker with host-managed ADB/AVD, or native service fallback | Vercel cannot run device automation |
+| Language | TypeScript | All `.ts` / `.tsx` files |
+| Framework | Next.js 16 (App Router) | `dashboard/package.json` |
+| UI Library | React 19 | `dashboard/package.json` |
+| Icons | Lucide React | Imports throughout pages |
+| Styling | Tailwind CSS + CSS Variables | `className` utility classes |
+| Authentication | Supabase Auth | `lib/supabase/auth-helper.ts` — `requireAdmin()` |
+| Authorization | Role-based — Admin only | `requireAdmin()` guard on every action |
+| CSRF Protection | Custom `verifyCSRF()` | `lib/csrf.ts` — verified on all write actions |
+| Database | Supabase (PostgreSQL) | `createClientServer()` + `createServiceClient()` |
+| ORM | Supabase Client SDK (query builder) | `db.from('table').select()` pattern |
+| Realtime | Supabase Realtime (planned) | Target: `release_ops_jobs`, `release_ops_job_events`, `release_ops_releases` |
+| CI/CD | GitHub Actions | `.github/workflows/deploy-crawler.yml` (crawler only) |
+| Docker | Docker Compose | `crawler-pipeline/docker-compose.yml` (crawler only) |
+| Monitoring | > Not Found | No OpenTelemetry, Prometheus, or Loki in source |
+| Testing | > Not Found | No test files for release-ops module |
+| Caching | > Not Found | No Redis, no in-memory cache |
+| Queue | Supabase table-based job queue | `release_ops_jobs` with `queued` → `claimed` → `running` lifecycle |
 
-### 2.3 Explicitly not introduced
-
-Redis, BullMQ, RabbitMQ, Kafka, a worker-local SQLite queue, a second Postgres instance, and a second authentication provider are not required. Supabase remains the job source of truth.
+---
 
 ## 3. Folder Structure
 
-### 3.1 Existing relevant SinoMedia locations
-
-```text
-dashboard/
-├── app/(main)/dash/release-ops/             # Existing Release Ops pages
-├── app/api/worker/rest/v1/[...path]/        # Existing crawler gateway reference
-├── components/dashboard/release-ops/        # Existing tabs/header/sub-nav
-├── lib/actions/release-ops.actions.ts       # Existing guarded Server Actions
-├── lib/services/release-ops.service.ts      # Existing Release Ops service
-├── lib/repositories/release-ops-*.repo.ts   # Existing repositories
-├── lib/guards/token.guard.ts                # Existing token verification
-└── types/release-ops.ts                     # Existing domain types
-
-supabase/
-└── migrations/                              # Release Ops migrations currently missing
-
-crawler-pipeline/
-└── docker-compose.yml                       # Existing detached-worker deployment reference
 ```
-
-### 3.2 Proposed integration additions
-
-```text
 dashboard/
-├── app/(main)/dash/release-ops/apk-pull/
-│   ├── page.tsx                             # Submit form + recent APK jobs
-│   └── [jobId]/page.tsx                     # Job timeline + artifact details
-├── app/api/release-ops/worker/v1/[...path]/
-│   └── route.ts                             # Shared Release Ops Worker Gateway
-├── components/dashboard/release-ops/apk-pull/
-│   ├── ApkPullForm.tsx
-│   ├── ApkPullJobTable.tsx
-│   ├── ApkPullTimeline.tsx
-│   └── ApkArtifactCard.tsx
+├── app/(main)/dash/release-ops/       # Release Ops page routes
+│   ├── layout.tsx                     # Shared layout for all release-ops pages
+│   ├── loading.tsx                    # Loading skeleton
+│   ├── page.tsx                       # Root redirect
+│   ├── overview/page.tsx              # Pipeline overview, CI builds chart
+│   ├── reports/page.tsx               # Store Performance Report 20 Cột (552 lines)
+│   ├── apps/page.tsx                  # App Registry + Onboard wizard (320 lines)
+│   ├── releases/page.tsx              # Releases, Rollouts, Promote/Halt (515 lines)
+│   ├── upload/page.tsx                # Upload AAB, Pre-check, Job Queue
+│   ├── accounts/                      # Play Developer Accounts
+│   │   ├── page.tsx
+│   │   └── add-account-panel.tsx      # Add account side panel
+│   ├── aso/page.tsx                   # ASO Analytics, CR Trend, GEO Scan
+│   ├── batch/page.tsx                 # Batch Operations
+│   ├── sdk/page.tsx                   # Target SDK Compliance Mandate (150 lines)
+│   └── dashboard/                     # Empty — not implemented
+│
+├── components/dashboard/release-ops/  # Shared Release Ops components
+│   ├── ReleaseOpsNavTabs.tsx          # 9-tab navigation bar (58 lines)
+│   ├── ReleaseOpsHeader.tsx           # Stats header with getOverviewStats()
+│   └── ReleaseOpsSubNav.tsx           # Sub-navigation
+│
 ├── lib/actions/
-│   └── release-ops.actions.ts               # Add APK pull actions
+│   └── release-ops.actions.ts         # 21 Server Actions (178 lines)
+│
 ├── lib/services/
-│   └── release-ops.service.ts               # Add APK job orchestration
-├── lib/repositories/
-│   ├── release-ops-artifact.repo.ts         # Missing repo to implement
-│   └── release-ops-job-event.repo.ts        # Missing repo to implement
-├── lib/release-ops-worker-api/
-│   ├── router.ts                            # Purpose-built path dispatch
-│   ├── schemas.ts                           # Worker request validation
-│   ├── scopes.ts                            # Release Ops scope map
-│   └── handlers/                            # Register, claim, event, complete, artifact
-└── types/release-ops.ts                     # Add APK payload/result types
-
-workers/
-└── apk-pull-worker/
-    ├── src/
-    │   ├── api/                             # Gateway client and DTOs
-    │   ├── adapters/
-    │   │   ├── adb/                         # Safe ADB execution and pull
-    │   │   ├── emulator/                    # AVD boot/readiness
-    │   │   ├── play-listing/                # HTML/listing/media acquisition
-    │   │   ├── play-ui/                     # UIAutomator install workflow
-    │   │   ├── storage/                     # Signed-upload client
-    │   │   └── archive/                     # Manifest, ZIP, checksum
-    │   ├── domain/                          # Job stages, errors, device profile
-    │   ├── pipeline/                        # Pull APK orchestration and cleanup
-    │   ├── runtime/                         # Polling, lease heartbeat, cancellation
-    │   └── main.ts
-    ├── tests/
-    │   ├── fixtures/                        # Play HTML and UI XML fixtures
-    │   ├── unit/
-    │   ├── integration/
-    │   └── e2e/
-    ├── Dockerfile
-    ├── docker-compose.yml
-    └── .env.example
-
-supabase/migrations/
-├── <timestamp>_release_ops_schema.sql
-├── <timestamp>_release_ops_worker_rpcs.sql
-├── <timestamp>_release_ops_storage.sql
-└── <timestamp>_release_ops_realtime.sql
+│   └── release-ops.service.ts         # Service layer (877 lines, 30+ functions)
+│
+├── lib/repositories/                  # 9 Release Ops repositories
+│   ├── release-ops-app.repo.ts        # release_ops_apps (3,610 B)
+│   ├── release-ops-release.repo.ts    # release_ops_releases (2,965 B)
+│   ├── release-ops-job.repo.ts        # release_ops_jobs (4,030 B)
+│   ├── release-ops-play-account.repo.ts # release_ops_play_accounts (2,311 B)
+│   ├── release-ops-aso.repo.ts        # release_ops_aso_metrics (1,363 B)
+│   ├── release-ops-worker.repo.ts     # release_ops_workers (1,263 B)
+│   ├── release-ops-audit.repo.ts      # release_ops_audits (1,678 B)
+│   ├── release-ops-batch.repo.ts      # release_ops_batch_operations (977 B)
+│   └── release-ops-report.repo.ts     # release_ops_aso_metrics (reports view, 1,624 B)
+│
+├── types/
+│   ├── release-ops.ts                 # Domain types: AppRegistryItem, AppReleaseItem, etc.
+│   └── supabase.ts                    # Generated Supabase DB types
+│
+└── lib/guards/
+    └── token.guard.ts                 # SHA-256 token guard (shared with crawler)
 ```
 
-The worker is a separate deployable backend, but its contract and shared DTOs belong to the same architecture and job model as the dashboard.
+---
 
 ## 4. System Architecture
 
-### 4.1 Complete integration architecture
-
-This is the authoritative target diagram for APK acquisition inside SinoMedia.
+### 4.1 Main System Architecture (6 Layers)
 
 ```mermaid
 flowchart TB
-    subgraph ClientLayer["Layer 1 — Browser"]
-        Admin(("Admin operator"))
-        ApkPage["Release Ops APK Pull page"]
-        JobPage["Job detail and artifact page"]
-        Admin --> ApkPage
-        Admin --> JobPage
+    subgraph L1["Layer 1 — Client / Hosting"]
+        User(("Operator / Browser"))
+        Host["Dashboard Host / Vercel"]
+        Middleware["Next.js Middleware<br/>/dash/*, /login, /sign-up"]
+        User -->|HTTPS| Host
+        Host --> Middleware
     end
 
-    subgraph VercelLayer["Layer 2 — Vercel control plane"]
-        Middleware["Next.js middleware"]
-        Actions["Server Actions"]
-        Service["Release Ops service"]
-        Repos["Release Ops repositories"]
-        Gateway["Worker Gateway API"]
-        TokenGuard["Token and scope guard"]
-        Cron["Artifact cleanup route"]
+    subgraph L2["Layer 2 — App / API"]
+        Dashboard["Dashboard — Next.js 16<br/>SSR + App Router"]
 
-        Middleware --> Actions
-        Actions --> Service
-        Service --> Repos
-        Gateway --> TokenGuard
+        subgraph CrawlerAPIGroup["Crawler Control API"]
+            AppBackend["Server Actions / Services / Repositories"]
+            WorkerAPI["Worker Gateway API<br/>/api/worker/rest/v1/*"]
+            TokenGuard["Token Guard<br/>SHA-256 + crawler scopes"]
+        end
+
+        subgraph ReleaseAPIGroup["Release Ops Control API"]
+            ReleaseOpsBackend["Release Ops Services / Repositories<br/>apps / releases / upload / batch / ASO / reports"]
+            ReleaseOpsAPI["Release Ops Worker Gateway API<br/>/api/release-ops/worker/v1/*"]
+            ReleaseOpsGuard["Release Ops Token Guard<br/>SHA-256 + release_ops scopes"]
+        end
+
+        Middleware -->|/dash/*| Dashboard
+        Host -->|crawler worker API| WorkerAPI
+        Host -->|release worker API| ReleaseOpsAPI
+
+        Dashboard --> AppBackend
+        Dashboard --> ReleaseOpsBackend
+
+        WorkerAPI --> TokenGuard
+        ReleaseOpsAPI --> ReleaseOpsGuard
     end
 
-    subgraph SupabaseLayer["Layer 3 — Supabase data plane"]
-        Auth["Supabase Auth"]
-        DB[("Release Ops tables and RPCs")]
-        Realtime["Supabase Realtime"]
-        Storage[("Private APK artifact bucket")]
+    subgraph L3A["Layer 3A — Supabase Auth"]
+        SupabaseAuth["Supabase Auth<br/>users / sessions"]
     end
 
-    subgraph WorkerLayer["Layer 4 — Detached APK backend"]
-        Poller["Job poller and lease manager"]
-        Pipeline["APK acquisition pipeline"]
-        Uploader["Direct artifact uploader"]
-        Temp["Temporary workspace"]
-        Poller --> Pipeline
-        Pipeline --> Temp
-        Pipeline --> Uploader
+    subgraph L3B["Layer 3B — Supabase Database / RPC"]
+        SupabaseDB[("Core DB + RPC<br/>api_tokens / crawler_tasks / crawler_logs<br/>crawler_accounts / crawled_*")]
+        ReleaseOpsDB[("Release Ops DB + RPC<br/>release_ops_apps / releases / artifacts<br/>workers / jobs / events / aso_metrics / audits")]
     end
 
-    subgraph DeviceLayer["Layer 5 — Android execution"]
-        HostADB["Host ADB server"]
-        Device["AVD chpay or physical device"]
-        PlayApp["Google Play application"]
-        Installed["Installed base and splits"]
-        HostADB --> Device
-        Device --> PlayApp
-        Device --> Installed
+    subgraph L3C["Layer 3C — Supabase Realtime"]
+        SupabaseRealtime["Realtime<br/>crawler_tasks + crawler_logs"]
+        ReleaseOpsRealtime["Realtime<br/>release_ops_jobs + events + releases"]
     end
 
-    subgraph ExternalLayer["Layer 6 — External source"]
-        PlayWeb["Google Play web listing"]
-        PlayMedia["Icons and screenshots"]
+    subgraph L4["Layer 4 — Execution / Physical Storage"]
+        subgraph CrawlerRuntime["Crawler VPS Runtime"]
+            VPSPath["/opt/crawler-pipeline"]
+            Docker["Docker Compose<br/>crawler-worker"]
+            Worker["crawler-pipeline<br/>Queue Worker"]
+            OutputDisk["Physical VPS Disk<br/>/opt/crawler-pipeline/output"]
+            DockerLogs["Docker json-file logs<br/>50MB x 3"]
+
+            VPSPath --> Docker
+            Docker --> Worker
+            Docker --> OutputDisk
+            Docker --> DockerLogs
+        end
+
+        subgraph ReleaseRuntime["Release Ops Worker Fleet"]
+            ReleaseFleet["Many Win Server 2012 VPS<br/>release-ops-worker service<br/>outbound polling only"]
+            ReleaseWorkerDisk["Local temp / logs / artifact cache<br/>per Windows VPS"]
+            ReleaseFleet --> ReleaseWorkerDisk
+        end
     end
 
-    ApkPage -->|"submit via HTTPS"| Middleware
-    JobPage -->|"read and download request"| Middleware
-    Middleware -->|"session"| Auth
-    Repos -->|"read and write"| DB
-    DB -.->|"publication changes"| Realtime
-    Realtime -.->|"live job and event updates"| JobPage
+    subgraph L5["Layer 5 — External / Optional"]
+        CrawlerExternal["Social Platforms + 2Captcha<br/>Douyin / Bilibili / Kuaishou / Tieba<br/>Weibo / XHS / Zhihu"]
+        ReleaseExternal["Google Play + Reports + CI Artifacts<br/>Publishing API / Reporting-GCS / AAB builds"]
+    end
 
-    Poller -->|"outbound claim and heartbeat"| Gateway
-    TokenGuard -->|"service role operations"| DB
-    Pipeline -->|"progress and completion"| Gateway
-    Pipeline -->|"listing fetch"| PlayWeb
-    PlayWeb --> PlayMedia
-    Pipeline -->|"ADB commands"| HostADB
-    Uploader -->|"signed direct upload"| Storage
-    Gateway -->|"issue upload contract and verify result"| Storage
-    Cron -->|"expire metadata"| DB
-    Cron -->|"delete expired object"| Storage
+    subgraph L6["Layer 6 — Missing Ops Layer"]
+        Missing["Not Found in current source<br/>Nginx / Redis / MinIO / BullMQ<br/>OpenTelemetry / Prometheus / Loki / Backups"]
+    end
 
-    classDef existing fill:#172033,stroke:#75a7ff,color:#fff
-    classDef proposed fill:#1d2a1a,stroke:#4ad98a,color:#fff
-    classDef external fill:#2a1d33,stroke:#e0aaff,color:#fff
-    classDef data fill:#2a2a1a,stroke:#ffd166,color:#fff
+    Middleware -->|refresh session / get user| SupabaseAuth
+    Dashboard -->|login / session| SupabaseAuth
 
-    class Middleware,Actions,Service,Repos,Auth,DB existing
-    class Gateway,TokenGuard,Cron,Poller,Pipeline,Uploader,Temp,HostADB,Device,PlayApp,Installed proposed
-    class PlayWeb,PlayMedia external
-    class Realtime,Storage data
+    TokenGuard -->|verify crawler token + service_role proxy| SupabaseDB
+    ReleaseOpsGuard -->|verify release_ops token + service_role proxy| ReleaseOpsDB
+
+    AppBackend -->|read/write + create crawler tasks| SupabaseDB
+    ReleaseOpsBackend -->|read/write release ops state| ReleaseOpsDB
+
+    SupabaseDB -.->|publication changes| SupabaseRealtime
+    SupabaseRealtime -.->|live crawler updates| Dashboard
+
+    ReleaseOpsDB -.->|publication changes| ReleaseOpsRealtime
+    ReleaseOpsRealtime -.->|live release/job updates| Dashboard
+
+    Worker -->|INTERNAL_API_URL + API_TOKEN| WorkerAPI
+    Worker -->|crawl / captcha| CrawlerExternal
+
+    ReleaseFleet -->|RELEASE_OPS_API_URL + RELEASE_OPS_TOKEN| ReleaseOpsAPI
+    ReleaseFleet -->|upload / promote / sync reports| ReleaseExternal
+
+    classDef missing fill:#3a1414,stroke:#e06666,color:#fff,stroke-dasharray:4 3
+    classDef storage fill:#172033,stroke:#75a7ff,color:#fff
+    classDef exec fill:#14261a,stroke:#4ad98a,color:#fff
+    classDef app fill:#1d1a2e,stroke:#b48cff,color:#fff
+    classDef release fill:#2a1d33,stroke:#e0aaff,color:#fff
+
+    class Missing missing
+    class SupabaseDB,ReleaseOpsDB,OutputDisk,DockerLogs,ReleaseWorkerDisk storage
+    class VPSPath,Docker,Worker,ReleaseFleet exec
+    class Dashboard,AppBackend,Middleware,WorkerAPI,TokenGuard,SupabaseAuth,SupabaseRealtime app
+    class ReleaseOpsBackend,ReleaseOpsAPI,ReleaseOpsGuard,ReleaseOpsRealtime,ReleaseExternal release
 ```
 
-### 4.2 Control plane versus execution plane
+### 4.2 Dashboard Internal Data Flow
 
-The long-running Android operation never runs in Vercel. Vercel controls state and authorization; the worker owns side effects.
+```mermaid
+flowchart TB
+    subgraph Browser["Browser — Client Side"]
+        Pages["Dashboard Pages<br/>(use client)"]
+        NavTabs["ReleaseOpsNavTabs<br/>9 tabs"]
+        Header["ReleaseOpsHeader<br/>Overview stats"]
+    end
+
+    subgraph ServerActions["Server Actions Layer<br/>release-ops.actions.ts"]
+        direction TB
+        CSRF["verifyCSRF()"]
+        Admin["requireAdmin()"]
+
+        subgraph ReadActions["READ Actions — requireAdmin only"]
+            SA_getApps["getApps()"]
+            SA_getReleases["getReleases()"]
+            SA_getPlayAccounts["getPlayAccounts()"]
+            SA_getUploadJobs["getUploadJobs()"]
+            SA_getTargetSDKStatus["getTargetSDKStatus()"]
+            SA_getOverviewStats["getOverviewStats()"]
+            SA_getASOMetrics["getASOMetrics()"]
+            SA_getWorkers["getWorkers()"]
+            SA_getBatchOps["getBatchOperations()"]
+            SA_getBuildHistory["getBuildHistory()"]
+            SA_getStoreReport["getStorePerformanceReport()"]
+        end
+
+        subgraph WriteActions["WRITE Actions — verifyCSRF + requireAdmin"]
+            SA_createApp["createApp()"]
+            SA_createPlayAccount["createPlayAccount()"]
+            SA_createJob["createJob()"]
+            SA_cancelJob["cancelJob()"]
+            SA_createRelease["createRelease()"]
+            SA_promoteRelease["promoteRelease()"]
+            SA_haltRelease["haltRelease()"]
+        end
+    end
+
+    subgraph ServiceLayer["Service Layer — release-ops.service.ts"]
+        GetRepos["getRepos() → 9 repositories"]
+        Mappers["5 Mappers: DB row → UI type"]
+        ReportEngine["Report Engine:<br/>resolvePresetDateRange()<br/>aggregate + compute CR<br/>filter + sort + paginate"]
+    end
+
+    subgraph RepoLayer["Repository Layer — 9 Repositories"]
+        AppRepo["AppRepo"]
+        ReleaseRepo["ReleaseRepo"]
+        JobRepo["JobRepo"]
+        AccountRepo["AccountRepo"]
+        ASORepo["ASORepo"]
+        WorkerRepo["WorkerRepo"]
+        AuditRepo["AuditRepo"]
+        BatchRepo["BatchRepo"]
+        ReportRepo["ReportRepo"]
+    end
+
+    subgraph SupabaseLayer["Supabase SSR Client"]
+        DB[("release_ops_* tables")]
+    end
+
+    Pages --> ReadActions
+    Pages --> WriteActions
+    ReadActions -->|"requireAdmin()"| Admin
+    WriteActions -->|"verifyCSRF()"| CSRF
+    WriteActions -->|"requireAdmin()"| Admin
+    ReadActions --> ServiceLayer
+    WriteActions --> ServiceLayer
+    ServiceLayer --> GetRepos
+    GetRepos --> RepoLayer
+    RepoLayer -->|".from(table).select()"| DB
+
+    classDef browser fill:#1a1a2e,stroke:#e0aaff,color:#fff
+    classDef action fill:#2a1d33,stroke:#b48cff,color:#fff
+    classDef service fill:#1d2a1a,stroke:#4ad98a,color:#fff
+    classDef repo fill:#172033,stroke:#75a7ff,color:#fff
+    classDef db fill:#2a2a1a,stroke:#ffd700,color:#fff
+
+    class Pages,NavTabs,Header browser
+    class SA_getApps,SA_getReleases,SA_getPlayAccounts,SA_getUploadJobs,SA_getTargetSDKStatus,SA_getOverviewStats,SA_getASOMetrics,SA_getWorkers,SA_getBatchOps,SA_getBuildHistory,SA_getStoreReport,SA_createApp,SA_createPlayAccount,SA_createJob,SA_cancelJob,SA_createRelease,SA_promoteRelease,SA_haltRelease,CSRF,Admin action
+    class GetRepos,Mappers,ReportEngine service
+    class AppRepo,ReleaseRepo,JobRepo,AccountRepo,ASORepo,WorkerRepo,AuditRepo,BatchRepo,ReportRepo repo
+    class DB db
+```
+
+### 4.3 Page ↔ Server Action ↔ Data Mapping
 
 ```mermaid
 flowchart LR
-    subgraph Control["Control plane — Vercel and Supabase"]
-        UI["Admin UI"]
-        API["Worker Gateway"]
-        Queue[("Job and lease state")]
-        Events[("Events and audits")]
-        UI --> Queue
-        API --> Queue
-        API --> Events
+    subgraph Pages["Dashboard Pages"]
+        P_Overview["/overview"]
+        P_Reports["/reports"]
+        P_Apps["/apps"]
+        P_Releases["/releases"]
+        P_Upload["/upload"]
+        P_Accounts["/accounts"]
+        P_ASO["/aso"]
+        P_Batch["/batch"]
+        P_SDK["/sdk"]
     end
 
-    subgraph Execution["Execution plane — device host"]
-        Worker["APK worker"]
-        ADB["ADB and emulator"]
-        Local["Temporary disk"]
-        Worker --> ADB
-        Worker --> Local
+    subgraph Actions["Server Actions"]
+        A_getReleases["getReleases"]
+        A_getOverview["getOverviewStats"]
+        A_getBuild["getBuildHistory"]
+        A_getReport["getStorePerformanceReport"]
+        A_getApps["getApps"]
+        A_createApp["createApp"]
+        A_getAccounts["getPlayAccounts"]
+        A_promote["promoteRelease"]
+        A_halt["haltRelease"]
+        A_getUpload["getUploadJobs"]
+        A_createJob["createJob"]
+        A_cancelJob["cancelJob"]
+        A_createAccount["createPlayAccount"]
+        A_getASO["getASOMetrics"]
+        A_getBatch["getBatchOperations"]
+        A_getSDK["getTargetSDKStatus"]
     end
 
-    subgraph ArtifactPlane["Artifact plane — Supabase Storage"]
-        Bucket[("Private bucket")]
-    end
+    P_Overview --> A_getReleases
+    P_Overview --> A_getOverview
+    P_Overview --> A_getBuild
+    P_Reports --> A_getReport
+    P_Apps --> A_getApps
+    P_Apps --> A_createApp
+    P_Apps --> A_getAccounts
+    P_Releases --> A_getReleases
+    P_Releases --> A_promote
+    P_Releases --> A_halt
+    P_Upload --> A_getApps
+    P_Upload --> A_getUpload
+    P_Upload --> A_createJob
+    P_Upload --> A_cancelJob
+    P_Accounts --> A_getAccounts
+    P_Accounts --> A_createAccount
+    P_ASO --> A_getASO
+    P_ASO --> A_getOverview
+    P_Batch --> A_getBatch
+    P_Batch --> A_getOverview
+    P_SDK --> A_getSDK
 
-    Worker -->|"outbound HTTPS only"| API
-    Worker -->|"direct signed upload"| Bucket
-    UI -->|"authorized signed download"| Bucket
+    classDef page fill:#2a1d33,stroke:#e0aaff,color:#fff
+    classDef action fill:#1d2a1a,stroke:#4ad98a,color:#fff
+
+    class P_Overview,P_Reports,P_Apps,P_Releases,P_Upload,P_Accounts,P_ASO,P_Batch,P_SDK page
+    class A_getReleases,A_getOverview,A_getBuild,A_getReport,A_getApps,A_createApp,A_getAccounts,A_promote,A_halt,A_getUpload,A_createJob,A_cancelJob,A_createAccount,A_getASO,A_getBatch,A_getSDK action
 ```
 
-Key boundary rules:
-
-1. The worker has no inbound public port.
-2. The worker receives no Supabase service-role key.
-3. Vercel does not receive APK/ZIP bytes during upload or download.
-4. Supabase Database is the only job-state source of truth.
-5. Worker-local disk is temporary and never the durable artifact store.
-
-### 4.3 Dashboard-to-worker end-to-end flow
-
-```mermaid
-sequenceDiagram
-    actor Admin
-    participant Page as "APK Pull page"
-    participant Action as "Server Action"
-    participant Service as "Release Ops service"
-    participant DB as "Supabase DB"
-    participant RT as "Realtime"
-    participant Gateway as "Worker Gateway"
-    participant Worker as "APK worker"
-    participant Device as "ADB device"
-    participant Storage as "Private Storage"
-
-    Admin->>Page: Submit Google Play URL
-    Page->>Action: createApkPullJob(input)
-    Action->>Action: verifyCSRF and requireAdmin
-    Action->>Service: validate and create job
-    Service->>DB: Insert pull_apk job and audit
-    DB-->>RT: Publish queued job
-    RT-->>Page: Render queued state
-
-    loop Poll with jitter
-        Worker->>Gateway: Claim job with pull_apk capability
-        Gateway->>DB: Atomic claim RPC
-        DB-->>Gateway: Leased job or no content
-        Gateway-->>Worker: Job payload and lease
-    end
-
-    Worker->>Gateway: Running event and heartbeat
-    Worker->>Device: Install from Play and pull all splits
-    Worker->>Gateway: Stage and progress events
-    Gateway->>DB: Append events and extend lease
-    DB-->>RT: Publish progress
-    RT-->>Page: Update timeline
-
-    Worker->>Gateway: Request artifact upload contract
-    Gateway-->>Worker: Signed upload target and object key
-    Worker->>Storage: Upload ZIP directly
-    Worker->>Gateway: Complete with size and checksum
-    Gateway->>Storage: Verify object metadata
-    Gateway->>DB: Insert artifact and complete job
-    DB-->>RT: Publish completion
-    RT-->>Page: Show download action
-
-    Worker->>Device: Uninstall only if installed by job
-    Worker->>Worker: Delete temporary files
-```
-
-### 4.4 Worker internal architecture
+### 4.4 Store Performance Report 20-Column Pipeline
 
 ```mermaid
 flowchart TB
-    Runtime["Runtime coordinator"] --> GatewayClient["Gateway client"]
-    Runtime --> Lease["Lease heartbeat and cancellation"]
-    Runtime --> Dispatcher["Capability dispatcher"]
+    subgraph Input["Input — Filter Panel"]
+        Preset["Preset: today / last7days / last30days /<br/>thisMonth / lastMonth / thisQuarter /<br/>lastQuarter / ytd / custom"]
+        Search["Search: appName / packageName"]
+        Filters["store / minVisitors / minAcquisitions"]
+        Sort["sortBy + sortOrder (click header)"]
+        Page["page + pageSize"]
+    end
 
-    Dispatcher --> PullHandler["pull_apk handler"]
-    PullHandler --> URL["URL and package validator"]
-    PullHandler --> Listing["Play listing adapter"]
-    PullHandler --> DeviceManager["Device manager"]
-    PullHandler --> Extractor["APK extractor"]
-    PullHandler --> Validator["Artifact validator"]
-    PullHandler --> Packager["Manifest and ZIP"]
-    PullHandler --> Upload["Signed upload adapter"]
-    PullHandler --> Cleanup["Cleanup compensator"]
+    subgraph Pipeline["Service Pipeline — getStorePerformanceReportService()"]
+        Step1["1. resolvePresetDateRange()"]
+        Step2["2. report.getRawMetrics()"]
+        Step3["3. apps.findAll()"]
+        Step4["4. Aggregate per app:<br/>sum visitors / acquisitions /<br/>explore / search / organic / ads"]
+        Step5["5. Compute 20 columns:<br/>crApp / crExplore / crSearch /<br/>crOrganic / crDelta / crCompetitorMedian /<br/>organicRatio / adsAcq"]
+        Step6["6. Apply search + threshold filters"]
+        Step7["7. Sort by sortBy + sortOrder"]
+        Step8["8. Paginate (page × pageSize)"]
+        Step9["9. Compute summary row:<br/>totalVisitors / totalAcquisitions /<br/>avgCrApp / avgCrOrganic"]
+    end
 
-    DeviceManager --> Emulator["Emulator lifecycle"]
-    DeviceManager --> PlayUI["Play UI automation"]
-    Extractor --> ADB["Safe ADB adapter"]
+    subgraph Output["Output — StorePerformanceReportResult"]
+        Items["items: StorePerformanceRow[]"]
+        Summary["summary: totals + averages"]
+        Pagination["pagination: page / pageSize / totalCount / totalPages"]
+        DateRange["dateRange: startDate / endDate / preset"]
+    end
 
-    Listing --> Workspace["Per-job workspace"]
-    Extractor --> Workspace
-    Validator --> Workspace
-    Packager --> Workspace
-    Upload --> Workspace
-    Cleanup --> Workspace
+    Input --> Step1
+    Step1 --> Step2
+    Step1 --> Step3
+    Step2 --> Step4
+    Step3 --> Step4
+    Step4 --> Step5
+    Step5 --> Step6
+    Step6 --> Step7
+    Step7 --> Step8
+    Step8 --> Step9
+    Step9 --> Output
+
+    classDef input fill:#2a1d33,stroke:#e0aaff,color:#fff
+    classDef pipeline fill:#1d2a1a,stroke:#4ad98a,color:#fff
+    classDef output fill:#172033,stroke:#75a7ff,color:#fff
+
+    class Preset,Search,Filters,Sort,Page input
+    class Step1,Step2,Step3,Step4,Step5,Step6,Step7,Step8,Step9 pipeline
+    class Items,Summary,Pagination,DateRange output
 ```
 
-### 4.5 Artifact upload and download architecture
-
-```mermaid
-sequenceDiagram
-    participant Worker
-    participant Gateway
-    participant DB as "Supabase DB"
-    participant Storage as "Private Storage"
-    participant Action as "Dashboard Server Action"
-    actor Admin
-
-    Worker->>Gateway: POST upload-init with jobId and expected metadata
-    Gateway->>DB: Verify token, worker lease, job type and status
-    Gateway->>DB: Reserve artifact object key
-    Gateway-->>Worker: Short-lived signed upload contract
-    Worker->>Storage: PUT ZIP directly
-    Worker->>Gateway: POST upload-complete with SHA-256 and size
-    Gateway->>Storage: Verify object exists and expected metadata
-    Gateway->>DB: Insert artifact and mark job succeeded
-
-    Admin->>Action: Request download
-    Action->>Action: requireAdmin
-    Action->>DB: Verify artifact status and expiry
-    Action-->>Admin: Short-lived signed download URL
-    Admin->>Storage: Download directly
-```
-
-### 4.6 Generic Release Ops job lifecycle with APK stages
-
-The generic `status` remains compatible with the master Release Ops model. APK-specific progress belongs in append-only events.
+### 4.5 Worker Job State Machine
 
 ```mermaid
 stateDiagram-v2
-    [*] --> queued
-    queued --> claimed : capability-aware claim
-    claimed --> running : worker starts
-    running --> running : scrape listing
-    running --> running : prepare device
-    running --> running : install application
-    running --> running : pull all APK splits
-    running --> running : validate and package
-    running --> running : upload artifact
-    running --> succeeded : verified completion
-    running --> failed : classified failure
-    failed --> retrying : retryable and attempts remain
-    retrying --> queued : release lease
-    failed --> dead_letter : attempts exhausted
-    queued --> cancelled : admin cancellation
-    claimed --> cancelled : cooperative cancellation
-    running --> cancelled : cleanup then cancel
-    succeeded --> expired : retention elapsed
-    dead_letter --> [*]
+    [*] --> queued : Dashboard creates job
+    queued --> claimed : Worker POST /jobs/claim
+    claimed --> running : Worker starts execution
+    running --> running : POST /jobs/:id/heartbeat
+    running --> running : POST /jobs/:id/events
+    running --> succeeded : POST /jobs/:id/succeed
+    running --> failed : POST /jobs/:id/fail
+    failed --> retrying : attempt < max_attempts
+    retrying --> queued : Re-queued with +1 attempt
+    failed --> dead_letter : attempt >= max_attempts
+    queued --> cancelled : cancelJob()
+    claimed --> cancelled : cancelJob()
+    running --> cancelled : cancelJob()
+    dead_letter --> [*] : Manual review
+    succeeded --> [*]
     cancelled --> [*]
-    expired --> [*]
 ```
+
+---
 
 ## 5. Module Breakdown
 
-### 5.1 APK Pull dashboard module
+### 5.1 App Registry Module
 
-Proposed route: `/dash/release-ops/apk-pull`.
+- **Purpose:** Quản lý danh mục ứng dụng — package name, Play account, target SDK, policy readiness.
+- **Repository:** [release-ops-app.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-app.repo.ts) — `findAll()`, `findById()`, `create()`, `update()`
+- **Table:** `release_ops_apps`
+- **UI:** [apps/page.tsx](file:///d:/Python/SinoMedia/dashboard/app/(main)/dash/release-ops/apps/page.tsx) — 320 lines, Onboard wizard form nối thật `createApp()`
+- **Dependencies:** `release_ops_play_accounts` (FK join)
 
-Responsibilities:
+### 5.2 Release Lifecycle Module
 
-- Accept one or multiple Google Play URLs.
-- Show the derived package ID before submission.
-- Create one `pull_apk` job per URL or one batch parent plus child jobs when the existing batch model is used.
-- Show queue position, stage, progress, retry state, worker, version, split count, screenshots, size, expiry, and error classification.
-- Offer cancel, retry, download, and delete based on job state and admin authorization.
-- Subscribe to `release_ops_jobs` and `release_ops_job_events` through Realtime.
+- **Purpose:** Theo dõi vòng đời release: draft → uploading → rolling_out → live/halted.
+- **Repository:** [release-ops-release.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-release.repo.ts) — `findAll()`, `findById()`, `create()`, `updateStatus()`
+- **Table:** `release_ops_releases`
+- **UI:** [releases/page.tsx](file:///d:/Python/SinoMedia/dashboard/app/(main)/dash/release-ops/releases/page.tsx) — 515 lines, Promote/Halt nối thật
+- **Business flow:** `promoteRelease()` → update DB + create job + write audit. `haltRelease()` → update status 'halted' + create job + write audit.
 
-### 5.2 Server Action module
+### 5.3 Job Queue Module
 
-Add guarded actions to the existing `release-ops.actions.ts`:
+- **Purpose:** Table-based job queue. Worker claim, heartbeat, events, succeed/fail.
+- **Repository:** [release-ops-job.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-job.repo.ts) — `findAll()`, `create()`, `updateStatus()`, `cancel()`
+- **Table:** `release_ops_jobs`
+- **Job types:** `upload`, `promote`, `halt`, `sync_report`, `batch_step`, `build`, `publish`
+- **UI:** [upload/page.tsx](file:///d:/Python/SinoMedia/dashboard/app/(main)/dash/release-ops/upload/page.tsx) — create job + cancel job
 
-| Action | Guards | Purpose |
-| --- | --- | --- |
-| `createApkPullJob(input)` | `verifyCSRF()` + `requireAdmin()` | Validate URL and create job/audit |
-| `getApkPullJobs(params)` | `requireAdmin()` | Paginated recent APK jobs |
-| `getApkPullJob(jobId)` | `requireAdmin()` | Job, events, worker, artifact |
-| `cancelApkPullJob(jobId)` | `verifyCSRF()` + `requireAdmin()` | Request cancellation |
-| `retryApkPullJob(jobId)` | `verifyCSRF()` + `requireAdmin()` | Requeue eligible dead-letter/failed job |
-| `getApkArtifactDownload(jobId)` | `requireAdmin()` | Generate short-lived signed URL |
-| `deleteApkArtifact(jobId)` | `verifyCSRF()` + `requireAdmin()` | Delete object, metadata, and audit |
+### 5.4 Play Account Module
 
-### 5.3 Release Ops service additions
+- **Purpose:** Quản lý Google Play Developer accounts — metadata, email, status.
+- **Repository:** [release-ops-play-account.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-play-account.repo.ts)
+- **Table:** `release_ops_play_accounts`
+- **UI:** [accounts/page.tsx](file:///d:/Python/SinoMedia/dashboard/app/(main)/dash/release-ops/accounts/page.tsx) + [add-account-panel.tsx](file:///d:/Python/SinoMedia/dashboard/app/(main)/dash/release-ops/accounts/add-account-panel.tsx)
 
-- Canonicalize Google Play URL and extract package ID.
-- Resolve optional `release_ops_apps.id` by `package_name` without requiring registration.
-- Enforce idempotency and active-job deduplication policy.
-- Create job plus audit in one RPC/transactional operation.
-- Map generic database records into APK-specific UI DTOs.
-- Generate storage object download handoff only after authorization and expiry checks.
-- Keep Supabase service-role usage server-only.
+### 5.5 ASO Analytics Module
 
-### 5.4 Repository additions
+- **Purpose:** Lưu trữ ASO metrics — visitors, acquisitions, conversion rates theo store/geo.
+- **Repository:** [release-ops-aso.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-aso.repo.ts)
+- **Table:** `release_ops_aso_metrics`
+- **UI:** [aso/page.tsx](file:///d:/Python/SinoMedia/dashboard/app/(main)/dash/release-ops/aso/page.tsx)
 
-Implement the two repositories listed as missing in the master document:
+### 5.6 Store Performance Report Module (20 Cột)
 
-- `ReleaseOpsJobEventRepository` for append-only timelines.
-- `ReleaseOpsArtifactRepository` for object metadata, expiry, and deletion state.
+- **Purpose:** Tổng hợp 20 cột hiệu suất store từ ASO metrics — filter, sort, paginate, summary row.
+- **Repository:** [release-ops-report.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-report.repo.ts) — `getRawMetrics()`
+- **Service:** `getStorePerformanceReportService()` — 222 lines, aggregation pipeline
+- **UI:** [reports/page.tsx](file:///d:/Python/SinoMedia/dashboard/app/(main)/dash/release-ops/reports/page.tsx) — 552 lines
+- **20 columns:** store, appName, pic, crAppYtd, crCompetitorMedian, totalVisitors, exploreVisitors, searchVisitors, totalAcquisitions, exploreAcquisitions, searchAcquisitions, crDelta, organicVisitors, organicVisitorRatio, organicAcquisitions, organicAcquisitionRatio, crOrganic, adsAcquisitions, crExplore, crSearch
 
-Existing job, worker, app, and audit repositories remain the source of related data.
+### 5.7 Batch Operations Module
 
-### 5.5 Worker Gateway module
+- **Purpose:** Multi-app operations — canary rollout, mass promote, SDK upgrade, halt all.
+- **Repository:** [release-ops-batch.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-batch.repo.ts) — `findAll()`
+- **Table:** `release_ops_batch_operations`
+- **Service:** `getBatchOperations()` — enriches với job counts (succeeded, running, failed, pending)
+- **UI:** [batch/page.tsx](file:///d:/Python/SinoMedia/dashboard/app/(main)/dash/release-ops/batch/page.tsx)
 
-One shared Release Ops gateway serves upload/promote/report and APK workers. It must:
+### 5.8 Target SDK Compliance Module
 
-- validate worker tokens and exact scopes;
-- validate request DTOs;
-- call purpose-built Supabase RPCs;
-- claim only jobs compatible with the worker's advertised capabilities;
-- verify worker ID, job lease, lease freshness, status, and attempt before any mutation;
-- accept bounded structured events, not arbitrary logs or table access;
-- issue artifact object keys and signed upload contracts;
-- verify the uploaded object before completing the job;
-- return cancellation state in heartbeat responses.
+- **Purpose:** Track Target SDK mandate compliance — đếm ngược deadline, compliance status.
+- **Service:** `getTargetSDKStatus()` → `mapDbAppToSDKItem()`
+- **UI:** [sdk/page.tsx](file:///d:/Python/SinoMedia/dashboard/app/(main)/dash/release-ops/sdk/page.tsx) — 150 lines
+- **Policy config:** Hardcoded Google Play mandate: API 34, deadline 2026-08-31
 
-### 5.6 Worker runtime module
+### 5.9 Worker Fleet Module
 
-- Registers stable worker identity.
-- Advertises capability `pull_apk` and device slots.
-- Polls the gateway with jitter.
-- Runs at most one job per device.
-- Heartbeats the worker and current job independently.
-- Dispatches only recognized job types.
-- Reports structured stages and progress.
-- Performs cleanup after success, failure, cancellation, timeout, or process recovery.
+- **Purpose:** Track worker machines — heartbeat, capacity, status.
+- **Repository:** [release-ops-worker.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-worker.repo.ts)
+- **Table:** `release_ops_workers`
+- **Server Action:** `getWorkers()` — exists but **no UI page yet**
 
-### 5.7 Listing acquisition module
+### 5.10 Audit Module
 
-- Fetch canonical Google Play listing with bounded redirects, response size, and timeout.
-- Save raw HTML for troubleshooting.
-- Extract full description, title, developer, rating, installs, icon, and all listing screenshots.
-- Validate downloaded content type/size.
-- Keep `AF_initDataCallback`/`ds:5` parsing isolated behind fixtures because markup can change.
+- **Purpose:** Append-only audit log — track promote/halt/create actions.
+- **Repository:** [release-ops-audit.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-audit.repo.ts) — `create()`
+- **Table:** `release_ops_audits`
+- **Auto-write:** `promoteRelease()` and `haltRelease()` automatically write audit records
+- **UI:** > No audit log page yet
 
-### 5.8 Device and Play UI module
-
-- Select one explicit ADB serial.
-- Boot/reuse AVD `chpay` when configured.
-- Wait for `sys.boot_completed=1`, wake/unlock, and maintain screen timeout.
-- Record whether the requested package existed before the job.
-- Open the exact `market://details?id=<packageId>` target.
-- Read UIAutomator XML and click only exact expected actions.
-- Poll `pm path` with a bounded overall timeout.
-- Report region, app-not-found, login-required, payment-required, approval-required, and UI-drift states separately.
-
-### 5.9 APK extraction and validation module
-
-- Pull every path returned by `pm path <packageId>`.
-- Preserve `base.apk` and split filenames safely.
-- Write `dumpsys package`, device-directory listing, device profile, and timestamps.
-- Confirm `base.apk` is a ZIP containing `AndroidManifest.xml`.
-- Calculate SHA-256 for every APK and final archive.
-- Never publish a partial or invalid archive.
-
-### 5.10 Cleanup module
-
-- Uninstall only when the package was absent before the job and installed by the job.
-- Preserve pre-existing apps.
-- Delete local workspace and partial archive after upload or terminal failure.
-- Reconcile stale local job directories on startup.
-- Leave AVD running for reuse unless configuration requires shutdown.
-- Let the control plane expire/delete durable Storage objects independently.
+---
 
 ## 6. Request Flow
 
-### 6.1 Web request flow
+Luồng xử lý cho một request từ dashboard UI đến database:
 
-1. Admin opens the Release Ops APK Pull page.
-2. Existing middleware refreshes/validates the Supabase session.
-3. Client submits form to `createApkPullJob()`.
-4. Server Action runs `verifyCSRF()` and `requireAdmin()`.
-5. Service validates exact Play host/path, package ID, locale, queue limits, and idempotency.
-6. Service creates `release_ops_jobs` and `release_ops_audits` records.
-7. Server Action returns the job ID immediately; no Android work occurs inside the request.
-8. Realtime publishes job/event changes to the page.
+```
+1. Browser (React page "use client")
+   │
+   ├── import { getApps } from '@/lib/actions/release-ops.actions'
+   │
+2. Server Action (release-ops.actions.ts)
+   │
+   ├── await requireAdmin()              ← Verify admin session via Supabase Auth
+   ├── await verifyCSRF()                ← CSRF token check (write actions only)
+   │
+3. Service Layer (release-ops.service.ts)
+   │
+   ├── const { apps, releases, ... } = await getRepos()
+   │   ├── createServiceClient() or createClientServer()    ← Supabase SSR client
+   │   └── new ReleaseOpsAppRepository(db)                  ← Inject db client
+   │
+   ├── const rows = await apps.findAll()                    ← Repository call
+   │
+4. Repository Layer (release-ops-app.repo.ts)
+   │
+   ├── this.db.from("release_ops_apps")
+   │     .select("*, release_ops_play_accounts(*)")
+   │     .order("created_at", { ascending: false })
+   │     .limit(200)
+   │
+5. Supabase PostgreSQL
+   │
+   └── Returns rows
+   │
+6. Service Layer
+   │
+   ├── rows.map(mapDbAppToRegistryItem)                     ← DB row → UI domain type
+   │
+7. Server Action
+   │
+   └── return result                                         ← Serialized to client
+   │
+8. Browser
+   │
+   └── setState(result)                                      ← React re-render
+```
 
-### 6.2 Worker claim flow
-
-1. Worker calls gateway with token, stable worker ID, capabilities, and available device slots.
-2. Token guard hashes token and validates active status, expiry, and required scope.
-3. Gateway calls an atomic claim RPC.
-4. RPC selects one eligible queued job using priority/FIFO order and `SKIP LOCKED` semantics.
-5. RPC sets `worker_id`, `claimed`, `lease_until`, `heartbeat_at`, and increments attempt when defined by policy.
-6. Gateway returns a typed `pull_apk` payload.
-
-### 6.3 Execution flow
-
-1. Worker changes job to running and starts lease heartbeat.
-2. Worker scrapes listing.
-3. Worker acquires its local device lock and prepares ADB/AVD.
-4. Worker records pre-install package state.
-5. Worker installs from Play only when needed.
-6. Worker pulls all base/split paths.
-7. Worker validates and packages.
-8. Worker obtains signed upload contract and uploads directly to Storage.
-9. Worker completes through gateway; gateway verifies lease and object.
-10. Worker cleans local/device state.
-
-### 6.4 Download flow
-
-1. Admin requests download through a Server Action.
-2. Server Action checks session/admin, job ownership policy, artifact deletion state, and expiry.
-3. Server creates a short-lived signed download URL for the exact private object.
-4. Browser downloads directly from Supabase Storage.
+---
 
 ## 7. Authentication
 
-### 7.1 Dashboard users
+**Dashboard user authentication:**
 
-Reuse the existing architecture:
+| Mechanism | Implementation |
+| --- | --- |
+| Provider | Supabase Auth (email/password) |
+| Session | Cookie-based SSR session via `createClientServer()` |
+| Middleware | Next.js middleware intercepts `/dash/*`, refreshes session |
+| Guard | `requireAdmin()` in `lib/supabase/auth-helper.ts` — called by every Server Action |
 
-- Supabase Auth is the identity provider.
-- Existing Next.js middleware protects dashboard routes.
-- All APK read actions require `requireAdmin()` under the current Release Ops policy.
-- All APK mutation actions additionally require `verifyCSRF()`.
+**Worker authentication (planned):**
 
-### 7.2 Workers
+| Mechanism | Implementation |
+| --- | --- |
+| Token type | Bearer token via `Authorization` header or `x-api-key` |
+| Verification | SHA-256 hash comparison against `api_tokens.token_hash` |
+| Guard | `token.guard.ts` — reused from crawler worker API |
+| Scope check | Required `release_ops:*` scopes per endpoint |
 
-Reuse SHA-256 token verification from `token.guard.ts` where compatible:
-
-- token supplied through `Authorization: Bearer` or the gateway's established header;
-- raw token hashed with SHA-256;
-- `api_tokens.token_hash` lookup;
-- require `status = active`;
-- reject expired/revoked credentials;
-- require exact Release Ops scopes;
-- bind or validate stable worker identity where supported;
-- never place the worker token in query strings or events.
-
-### 7.3 Google Play account
-
-The Play account remains signed into the dedicated Android device/AVD. Google credentials are not submitted through the dashboard, stored in `release_ops_jobs`, or exposed to the worker gateway.
+---
 
 ## 8. Authorization
 
-### 8.1 User permissions
-
-Current supplied code uses admin-only Release Ops Server Actions. APK acquisition follows that rule for the first implementation.
-
-| Actor | Create | View | Download | Cancel/retry | Delete | Worker operations |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Guest | No | No | No | No | No | No |
-| Authenticated non-admin | No | No | No | No | No | No |
-| Admin | Yes | Yes | Yes | Yes | Yes | No |
-| APK worker | No UI | Assigned job only | Upload only | Report only | No | Scoped endpoints only |
-
-### 8.2 Worker scopes
-
-Reuse existing proposed scopes and add only the missing write scope:
-
-| Scope | Use |
+| Role | Permissions |
 | --- | --- |
-| `release_ops:worker:register` | Register worker/capabilities |
-| `release_ops:worker:heartbeat` | Worker health |
-| `release_ops:job:claim` | Claim compatible job |
-| `release_ops:job:heartbeat` | Extend assigned lease/read cancellation |
-| `release_ops:job:event` | Append bounded progress event |
-| `release_ops:job:complete` | Report success/failure |
-| `release_ops:artifact:write` | Initialize and complete direct upload |
+| Admin | Full access — all read + write Server Actions require `requireAdmin()` |
+| User | No access to Release Ops — all actions reject non-admin |
+| Worker | Scoped token access — `release_ops:job:claim`, `release_ops:job:event`, etc. |
+| Guest | No access — middleware redirects to login |
 
-The APK worker does not require `release_ops:artifact:read` unless it must consume an existing artifact for another explicitly supported job type.
+Recommended Release Ops worker scopes:
+
+| Scope | Purpose |
+| --- | --- |
+| `release_ops:worker:register` | Worker registration |
+| `release_ops:worker:heartbeat` | Worker fleet health |
+| `release_ops:job:claim` | Claim queued jobs |
+| `release_ops:job:heartbeat` | Extend job lease |
+| `release_ops:job:event` | Write job progress events |
+| `release_ops:job:complete` | Write final result (succeed/fail) |
+| `release_ops:artifact:read` | Read artifact metadata |
+| `release_ops:report:write` | Write report sync output |
+
+---
 
 ## 9. Database
 
-### 9.1 Reuse existing Release Ops tables
+### 9.1 Table Inventory
 
-No APK-specific queue database is introduced.
+| Table | Purpose | Repository |
+| --- | --- | --- |
+| `release_ops_apps` | App registry | ✅ `ReleaseOpsAppRepository` |
+| `release_ops_play_accounts` | Play developer accounts | ✅ `ReleaseOpsPlayAccountRepository` |
+| `release_ops_releases` | Release lifecycle | ✅ `ReleaseOpsReleaseRepository` |
+| `release_ops_jobs` | Job queue | ✅ `ReleaseOpsJobRepository` |
+| `release_ops_job_events` | Job event timeline | ❌ No repository |
+| `release_ops_workers` | Worker fleet | ✅ `ReleaseOpsWorkerRepository` |
+| `release_ops_artifacts` | Build artifacts | ❌ No repository |
+| `release_ops_batch_operations` | Batch ops | ✅ `ReleaseOpsBatchRepository` |
+| `release_ops_aso_metrics` | ASO / store metrics | ✅ `ReleaseOpsASORepository` + `ReleaseOpsReportRepository` |
+| `release_ops_audits` | Audit log | ✅ `ReleaseOpsAuditRepository` |
 
-| Existing table | APK use |
-| --- | --- |
-| `release_ops_apps` | Optional registry link by `package_name` |
-| `release_ops_jobs` | `pull_apk` job payload, lease, status, result, retry |
-| `release_ops_job_events` | Append-only stage/progress/errors |
-| `release_ops_workers` | Worker health, capabilities, device metadata |
-| `release_ops_artifacts` | ZIP object metadata and retention |
-| `release_ops_audits` | Create/cancel/retry/download/delete audit |
-| `release_ops_batch_operations` | Optional multi-URL parent operation |
+### 9.2 Migration Status
 
-### 9.2 Job payload and result contracts
+> Migration SQL files for `release_ops_*` tables are **NOT FOUND** in `supabase/migrations/`. Tables exist in the remote Supabase instance but were created outside version-controlled migrations.
 
-Proposed `release_ops_jobs.payload` for `pull_apk`:
-
-```json
-{
-  "schemaVersion": 1,
-  "playUrl": "https://play.google.com/store/apps/details?id=com.example.app&hl=en",
-  "packageId": "com.example.app",
-  "locale": "en",
-  "includeListing": true,
-  "includeScreenshots": true,
-  "sourcePolicy": "google_play_only",
-  "requestedDeviceProfile": null
-}
-```
-
-Proposed `release_ops_jobs.result`:
-
-```json
-{
-  "schemaVersion": 1,
-  "versionName": "1.2.3",
-  "versionCode": 123,
-  "baseSizeBytes": 12345678,
-  "splitCount": 4,
-  "screenshotCount": 8,
-  "archiveArtifactId": "uuid",
-  "archiveSha256": "hex",
-  "archiveSizeBytes": 23456789,
-  "deviceProfile": {
-    "sdk": 35,
-    "abi": "arm64-v8a",
-    "density": 420,
-    "locale": "en-US"
-  },
-  "warnings": []
-}
-```
-
-### 9.3 Required schema/migration additions
-
-The master document states Release Ops migrations are not present locally. Version-control the complete existing schema first, then add/confirm:
-
-| Object | Required change |
-| --- | --- |
-| `release_ops_jobs.job_type` | Allow `pull_apk` |
-| `release_ops_workers.metadata` | Document `capabilities`, `devices`, `workerVersion`, and health shape |
-| `release_ops_artifacts` | Add/confirm `artifact_type`, `content_type`, `size_bytes`, `expires_at`, `deleted_at`, object uniqueness |
-| `release_ops_job_events` | Ensure append-only permissions and `(job_id, created_at)` index |
-| RPC | `claim_release_ops_job(worker_id, capabilities, lease_seconds)` |
-| RPC | Lease-checked heartbeat, event append, failure, and success operations |
-| Storage | Private bucket and object-path policy |
-| Realtime | Publish jobs/events needed by dashboard |
-
-### 9.4 ER diagram
+### 9.3 ER Diagram
 
 ```mermaid
 erDiagram
-    release_ops_apps ||--o{ release_ops_jobs : "optional target"
-    release_ops_workers ||--o{ release_ops_jobs : "claims"
-    release_ops_jobs ||--o{ release_ops_job_events : "emits"
-    release_ops_jobs ||--o{ release_ops_artifacts : "produces"
-    release_ops_apps ||--o{ release_ops_artifacts : "identifies"
+    release_ops_apps {
+        uuid id PK
+        text package_name UK
+        text app_name
+        uuid play_account_id FK
+        int target_sdk
+        text policy_readiness
+        jsonb metadata
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    release_ops_play_accounts {
+        uuid id PK
+        text account_name
+        text developer_id
+        text email
+        text status
+        jsonb metadata
+        timestamp created_at
+    }
+
+    release_ops_releases {
+        uuid id PK
+        uuid app_id FK
+        text version_name
+        int version_code
+        text track
+        text status
+        int rollout_percentage
+        text release_notes
+        jsonb health_guard
+        jsonb readiness_gate
+        timestamp created_at
+        timestamp updated_at
+    }
 
     release_ops_jobs {
         uuid id PK
         text job_type
         text status
+        int priority
+        uuid release_id FK
         uuid app_id FK
         uuid worker_id FK
         timestamp lease_until
@@ -813,7 +730,9 @@ erDiagram
         jsonb payload
         jsonb result
         text error_message
+        uuid created_by
         timestamp created_at
+        timestamp updated_at
     }
 
     release_ops_job_events {
@@ -834,863 +753,565 @@ erDiagram
         int max_parallel_jobs
         timestamp last_heartbeat
         jsonb metadata
+        timestamp created_at
     }
 
     release_ops_artifacts {
         uuid id PK
+        uuid release_id FK
         uuid job_id FK
-        uuid app_id FK
-        text artifact_type
         text file_name
         text checksum
-        bigint size_bytes
-        text storage_path UK
-        timestamp expires_at
-        timestamp deleted_at
+        text storage_path
         jsonb metadata
+        timestamp created_at
     }
+
+    release_ops_batch_operations {
+        uuid id PK
+        text title
+        text operation_type
+        text status
+        jsonb plan_payload
+        uuid created_by
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    release_ops_aso_metrics {
+        uuid id PK
+        uuid app_id FK
+        date report_date
+        text store
+        int total_visitors
+        int explore_visitors
+        int search_visitors
+        int total_acquisitions
+        int explore_acquisitions
+        int search_acquisitions
+        float cr_app
+        float cr_explore
+        float cr_search
+        float cr_organic
+        jsonb metadata
+        timestamp created_at
+    }
+
+    release_ops_audits {
+        uuid id PK
+        text action
+        text entity_type
+        uuid entity_id
+        uuid actor_id
+        jsonb details
+        timestamp created_at
+    }
+
+    release_ops_play_accounts ||--o{ release_ops_apps : "owns many"
+    release_ops_apps ||--o{ release_ops_releases : "has many"
+    release_ops_apps ||--o{ release_ops_aso_metrics : "has many"
+    release_ops_releases ||--o{ release_ops_jobs : "triggers"
+    release_ops_releases ||--o{ release_ops_artifacts : "produces"
+    release_ops_jobs ||--o{ release_ops_job_events : "emits"
+    release_ops_jobs ||--o{ release_ops_artifacts : "produces"
+    release_ops_workers ||--o{ release_ops_jobs : "claims"
 ```
 
-### 9.5 Storage object layout
+### 9.4 Release Status Enum
 
-Private bucket proposal: `release-ops-artifacts`.
-
-```text
-apk-pull/<yyyy>/<mm>/<jobId>/<packageId>-<versionCode>.zip
+```
+draft → queued → validating → uploading → uploaded → submitted → in_review → rolling_out → live
+                                                                                    ↓
+                                                                                  halted
+                                              ↓ (at any point)
+                                         rejected / failed / policy_blocked
 ```
 
-The object key is generated by the server, never accepted verbatim from the worker. Database metadata must be inserted only after upload verification.
+---
 
 ## 10. API Architecture
 
-### 10.1 Dashboard interface
+### 10.1 Dashboard API (Server Actions)
 
-The browser uses Server Actions and Realtime, consistent with the existing dashboard. It does not call the worker gateway directly.
+| Pattern | Detail |
+| --- | --- |
+| Protocol | Next.js Server Actions (internal RPC, not REST) |
+| Entry point | `import { fn } from '@/lib/actions/release-ops.actions'` |
+| Auth | `requireAdmin()` on every action |
+| CSRF | `verifyCSRF()` on every write action |
+| Error format | `throw new Error("message")` → caught by React error boundary |
+| Response format | Direct TypeScript return value (serialized by Next.js) |
+| Pagination | Service-level: `page`, `pageSize`, `totalCount`, `totalPages` on reports |
+| Filtering | Service-level: `search`, `store`, `minVisitors`, `minAcquisitions` |
+| Sorting | Service-level: `sortBy`, `sortOrder` (asc/desc) |
 
-### 10.2 Worker Gateway base path
+### 10.2 Worker Gateway API (Planned — Not Implemented)
 
-```text
-/api/release-ops/worker/v1/*
-```
+| Pattern | Detail |
+| --- | --- |
+| Protocol | REST over HTTPS |
+| Base route | `/api/release-ops/worker/v1/*` |
+| Auth | Bearer token → SHA-256 hash → `api_tokens.token_hash` match |
+| Versioning | `/v1/` prefix |
 
-### 10.3 Required endpoints
+Planned endpoints:
 
 | Method | Path | Scope | Purpose |
 | --- | --- | --- | --- |
-| `POST` | `/workers/register` | `release_ops:worker:register` | Register identity and capabilities |
-| `POST` | `/workers/heartbeat` | `release_ops:worker:heartbeat` | Worker/device health |
-| `POST` | `/jobs/claim` | `release_ops:job:claim` | Atomic compatible-job claim |
-| `POST` | `/jobs/:id/start` | `release_ops:job:heartbeat` | Move claimed job to running |
-| `POST` | `/jobs/:id/heartbeat` | `release_ops:job:heartbeat` | Extend lease and receive cancel flag |
-| `POST` | `/jobs/:id/events` | `release_ops:job:event` | Append structured progress |
-| `POST` | `/jobs/:id/artifacts/upload-init` | `release_ops:artifact:write` | Reserve object and signed upload |
-| `POST` | `/jobs/:id/artifacts/upload-complete` | `release_ops:artifact:write` | Verify uploaded object |
-| `POST` | `/jobs/:id/succeed` | `release_ops:job:complete` | Complete with result/artifact reference |
-| `POST` | `/jobs/:id/fail` | `release_ops:job:complete` | Retry/dead-letter classified failure |
+| `POST` | `/workers/register` | `release_ops:worker:register` | Register worker |
+| `POST` | `/workers/heartbeat` | `release_ops:worker:heartbeat` | Worker health check |
+| `POST` | `/jobs/claim` | `release_ops:job:claim` | Atomic job claim |
+| `POST` | `/jobs/:id/heartbeat` | `release_ops:job:heartbeat` | Extend lease |
+| `POST` | `/jobs/:id/events` | `release_ops:job:event` | Append progress |
+| `POST` | `/jobs/:id/succeed` | `release_ops:job:complete` | Mark success |
+| `POST` | `/jobs/:id/fail` | `release_ops:job:complete` | Mark failure |
+| `GET` | `/artifacts/:id` | `release_ops:artifact:read` | Artifact download |
+| `POST` | `/reports/sync-result` | `release_ops:report:write` | Store sync result |
 
-### 10.4 Claim request
+---
 
-```json
-{
-  "workerId": "uuid",
-  "workerVersion": "1.0.0",
-  "capabilities": ["pull_apk"],
-  "availableSlots": 1,
-  "deviceProfiles": [
-    {
-      "deviceId": "emulator-5554",
-      "sdk": 35,
-      "abi": "arm64-v8a",
-      "density": 420,
-      "locale": "en-US",
-      "playReady": true
-    }
-  ]
-}
-```
+## 11. Business Flow
 
-### 10.5 Gateway response envelope
-
-```json
-{
-  "data": {
-    "job": null,
-    "pollAfterMs": 5000,
-    "serverTime": "2026-08-05T10:00:00.000Z"
-  }
-}
-```
-
-When a job is claimed, `job` contains typed ID, type, payload, attempt, lease expiry, and cancellation token/version. It contains no service-role credential or arbitrary database access information.
-
-### 10.6 Error response
-
-```json
-{
-  "error": {
-    "code": "STALE_JOB_LEASE",
-    "message": "The worker no longer owns this job lease.",
-    "requestId": "uuid",
-    "retryable": false
-  }
-}
-```
-
-### 10.7 Gateway constraints
-
-- Validate body size and schema on every endpoint.
-- Do not provide arbitrary table names, filters, SQL, object keys, or ADB inputs.
-- Mutation endpoints require current worker ownership and unexpired lease.
-- Events are capped in message and metadata size.
-- Completion is idempotent for the same job/attempt/artifact checksum.
-- Signed upload/download URLs are short-lived and redacted from logs/events.
-
-## 11. Business Flows
-
-### 11.1 Create APK pull job
+### 11.1 Upload AAB Flow
 
 ```mermaid
 sequenceDiagram
-    actor Admin
-    participant UI as "APK Pull page"
-    participant Action as "createApkPullJob"
-    participant Guard as "CSRF and admin guards"
-    participant Service as "Release Ops service"
+    actor Operator
+    participant Dashboard
+    participant Action as "createJob()"
+    participant Service as "release-ops.service"
     participant DB as "Supabase"
-    participant RT as "Realtime"
+    participant Realtime
+    participant Worker
+    participant GooglePlay
 
-    Admin->>UI: Enter Play URL
-    UI->>Action: Submit input and idempotency key
-    Action->>Guard: verifyCSRF and requireAdmin
-    Guard-->>Action: Authorized admin
-    Action->>Service: Validate canonical URL and package
-    Service->>DB: Create pull_apk job and audit
-    DB-->>RT: Publish queued record
-    RT-->>UI: Show queued job
-    Action-->>UI: Return job ID
+    Operator->>Dashboard: Submit upload request
+    Dashboard->>Action: createJob({ job_type: 'upload', payload })
+    Action->>Action: verifyCSRF() + requireAdmin()
+    Action->>Service: createJob(input)
+    Service->>DB: INSERT release_ops_jobs (status: 'queued')
+    DB-->>Realtime: Job change event
+    Realtime-->>Dashboard: Live update
+    Worker->>DB: POST /jobs/claim → Lease job
+    Worker->>GooglePlay: Upload AAB / create edit
+    Worker->>DB: POST /jobs/:id/events → Progress
+    Worker->>DB: POST /jobs/:id/succeed → Result
+    DB-->>Realtime: Final state
+    Realtime-->>Dashboard: Show result
 ```
 
-### 11.2 APK acquisition pipeline
+### 11.2 Promote Release Flow
 
 ```mermaid
 sequenceDiagram
-    participant Worker
-    participant Gateway
-    participant PlayWeb as "Play web listing"
-    participant PlayApp as "Play Android app"
-    participant ADB
-    participant Disk as "Worker temp disk"
-    participant Storage
+    actor Operator
+    participant Dashboard
+    participant Action as "promoteRelease()"
+    participant Service as "release-ops.service"
+    participant ReleaseRepo
+    participant JobRepo
+    participant AuditRepo
+    participant DB as "Supabase"
 
-    Worker->>Gateway: Claim pull_apk job
-    Worker->>PlayWeb: Fetch listing and media
-    PlayWeb-->>Worker: HTML, icon, screenshots
-    Worker->>Disk: Save listing assets
-    Worker->>ADB: Check package and device readiness
-    Worker->>PlayApp: Open exact market URL and install
-    Worker->>ADB: Poll pm path until installed
-    ADB-->>Worker: Base and split paths
-    Worker->>ADB: Pull every returned path
-    Worker->>Disk: Validate, hash, manifest and ZIP
-    Worker->>Gateway: Request signed upload
-    Worker->>Storage: Upload ZIP directly
-    Worker->>Gateway: Complete artifact and job
-    Worker->>ADB: Uninstall only if installed by job
-    Worker->>Disk: Remove temporary workspace
+    Operator->>Dashboard: Click "Promote +20%"
+    Operator->>Dashboard: Enter business reason
+    Dashboard->>Action: promoteRelease(id, { targetRolloutPercentage: 40, reason })
+    Action->>Action: verifyCSRF() + requireAdmin()
+    Action->>Service: promoteReleaseService(id, input)
+    Service->>ReleaseRepo: updateStatus(id, 'rolling_out', 40)
+    ReleaseRepo->>DB: UPDATE release_ops_releases
+    Service->>JobRepo: create({ job_type: 'promote', release_id, payload })
+    JobRepo->>DB: INSERT release_ops_jobs
+    Service->>AuditRepo: create({ action: 'PROMOTE', entity_id, details })
+    AuditRepo->>DB: INSERT release_ops_audits
+    Service-->>Dashboard: void (success)
+    Dashboard->>Dashboard: loadData() → refresh from DB
 ```
 
-### 11.3 Failure and retry
+### 11.3 Halt Release Flow
 
 ```mermaid
 sequenceDiagram
-    participant Worker
-    participant Gateway
-    participant DB
-    participant Device
-    participant Disk
+    actor Operator
+    participant Dashboard
+    participant Action as "haltRelease()"
+    participant Service as "release-ops.service"
+    participant ReleaseRepo
+    participant JobRepo
+    participant AuditRepo
+    participant DB as "Supabase"
 
-    Worker->>Gateway: Report classified failure
-    Gateway->>DB: Verify lease and attempt
-    alt Retryable and attempts remain
-        DB->>DB: Set retrying then queued
-    else Permanent or exhausted
-        DB->>DB: Set dead_letter
-    end
-    Worker->>Device: Safe cleanup
-    Worker->>Disk: Delete partial data
-    Worker->>Gateway: Final cleanup event when lease permits
+    Operator->>Dashboard: Click "Halt"
+    Operator->>Dashboard: Enter halt reason
+    Dashboard->>Action: haltRelease(id, { reason })
+    Action->>Action: verifyCSRF() + requireAdmin()
+    Action->>Service: haltReleaseService(id, input)
+    Service->>ReleaseRepo: updateStatus(id, 'halted')
+    ReleaseRepo->>DB: UPDATE release_ops_releases SET status='halted'
+    Service->>JobRepo: create({ job_type: 'halt', release_id, payload })
+    JobRepo->>DB: INSERT release_ops_jobs
+    Service->>AuditRepo: create({ action: 'HALT', entity_id, details })
+    AuditRepo->>DB: INSERT release_ops_audits
 ```
 
-### 11.4 Cancel flow
+### 11.4 Store Performance Report Query
 
-- Queued job: dashboard sets `cancelled`; it can no longer be claimed.
-- Claimed/running job: dashboard sets a cancellation request; the heartbeat response tells the assigned worker to stop at the next safe checkpoint.
-- Worker performs device and disk cleanup, then acknowledges cancellation.
-- A completed artifact is not removed by cancellation; deletion is a separate audited action.
+```mermaid
+sequenceDiagram
+    actor Operator
+    participant ReportsPage as "/reports"
+    participant Action as "getStorePerformanceReport()"
+    participant Service
+    participant ReportRepo
+    participant AppRepo
+    participant DB as "Supabase"
 
-### 11.5 Expiry and deletion
+    Operator->>ReportsPage: Set filters, click search
+    ReportsPage->>Action: getStorePerformanceReport(params)
+    Action->>Service: getStorePerformanceReportService(params)
+    Service->>Service: resolvePresetDateRange(preset)
+    Service->>ReportRepo: getRawMetrics({ startDate, endDate, store })
+    ReportRepo->>DB: SELECT from release_ops_aso_metrics
+    DB-->>Service: Raw metric rows
+    Service->>AppRepo: findAll()
+    AppRepo->>DB: SELECT from release_ops_apps
+    DB-->>Service: App rows
+    Service->>Service: Aggregate per app → 20 columns
+    Service->>Service: Filter (search + thresholds)
+    Service->>Service: Sort (sortBy + sortOrder)
+    Service->>Service: Paginate (page × pageSize)
+    Service->>Service: Compute summary row
+    Service-->>ReportsPage: { items, summary, pagination, dateRange }
+```
 
-- Each artifact receives `expires_at` according to retention policy.
-- Vercel Cron invokes a protected cleanup route in bounded batches.
-- Cleanup deletes the private Storage object first, then marks metadata deleted/expired and writes an audit/system event.
-- Explicit admin deletion follows the same idempotent service path.
-- Local worker cleanup is separate and happens immediately after each attempt.
+---
 
 ## 12. Dependency Graph
 
 ```mermaid
 flowchart TD
-    Page["APK Pull pages"] --> Actions["Release Ops actions"]
-    Actions --> Guards["Admin and CSRF guards"]
-    Actions --> Service["Release Ops service"]
-    Service --> JobRepo["Job repository"]
-    Service --> EventRepo["Job event repository"]
-    Service --> ArtifactRepo["Artifact repository"]
-    Service --> WorkerRepo["Worker repository"]
-    Service --> AuditRepo["Audit repository"]
-    JobRepo --> Supabase[("Supabase")]
-    EventRepo --> Supabase
-    ArtifactRepo --> Supabase
-    WorkerRepo --> Supabase
-    AuditRepo --> Supabase
+    subgraph Pages["Dashboard Pages"]
+        Overview
+        Reports
+        Apps
+        Releases
+        Upload
+        Accounts
+        ASO
+        Batch
+        SDK
+    end
 
-    Gateway["Worker Gateway"] --> TokenGuard["Token guard"]
-    Gateway --> RPC["Purpose-built RPCs"]
-    RPC --> Supabase
+    subgraph Actions["Server Actions"]
+        ReleaseOpsActions["release-ops.actions.ts"]
+    end
 
-    Worker["APK worker runtime"] --> GatewayClient["Gateway client"]
-    Worker --> Pipeline["Pull APK pipeline"]
-    Pipeline --> Listing["Listing adapter"]
-    Pipeline --> Device["Device adapter"]
-    Pipeline --> Archive["Archive adapter"]
-    Pipeline --> Upload["Storage upload adapter"]
+    subgraph Services["Service Layer"]
+        ReleaseOpsService["release-ops.service.ts"]
+    end
+
+    subgraph Repos["Repository Layer"]
+        AppRepo["app.repo"]
+        ReleaseRepo["release.repo"]
+        JobRepo["job.repo"]
+        AccountRepo["play-account.repo"]
+        ASORepo["aso.repo"]
+        WorkerRepo["worker.repo"]
+        AuditRepo["audit.repo"]
+        BatchRepo["batch.repo"]
+        ReportRepo["report.repo"]
+    end
+
+    subgraph Shared["Shared"]
+        AuthHelper["auth-helper.ts"]
+        CSRF["csrf.ts"]
+        SupabaseClient["supabase/server.ts"]
+        Types["types/release-ops.ts"]
+    end
+
+    Pages --> ReleaseOpsActions
+    ReleaseOpsActions --> AuthHelper
+    ReleaseOpsActions --> CSRF
+    ReleaseOpsActions --> ReleaseOpsService
+    ReleaseOpsService --> SupabaseClient
+    ReleaseOpsService --> Repos
+    ReleaseOpsService --> Types
+    Repos --> SupabaseClient
+
+    classDef page fill:#2a1d33,stroke:#e0aaff,color:#fff
+    classDef shared fill:#172033,stroke:#75a7ff,color:#fff
+
+    class Overview,Reports,Apps,Releases,Upload,Accounts,ASO,Batch,SDK page
+    class AuthHelper,CSRF,SupabaseClient,Types shared
 ```
 
-Dependency rules:
-
-- Dashboard pages do not import repositories directly.
-- Server Actions do not run ADB or upload archive bytes.
-- Worker does not import dashboard repositories or Supabase service clients.
-- Worker talks only to the Gateway and signed Storage endpoints.
-- Device/listing/storage details remain behind worker adapters.
+---
 
 ## 13. External Services
 
-| Dependency | Direction | Use | Failure behavior |
-| --- | --- | --- | --- |
-| Vercel | Browser/worker → control plane | Host Next.js UI, Server Actions, Worker Gateway, Cron route | No new claims; running worker continues only while lease/heartbeats succeed |
-| Supabase Auth | Dashboard server → Supabase | User session/admin protection | UI mutation denied |
-| Supabase Database/RPC | Vercel server → Supabase | Jobs, leases, events, artifacts, audits | Queue/control-plane operation fails safely |
-| Supabase Realtime | Supabase → browser | Live job and event changes | UI falls back to refresh/polling |
-| Supabase Storage | Worker/browser → Supabase | Private durable ZIP upload/download | Job remains incomplete or download unavailable |
-| Google Play web | Worker → Google | Listing and media | Classified listing failure/warning |
-| Google Play Android app | Device → Google | Official installation | Region/login/payment/not-found/UI-drift error |
-| ADB/Android Emulator | Worker → local device | Device control and APK extraction | Device unavailable or timeout |
+| Service | Integration | Status |
+| --- | --- | --- |
+| **Supabase Auth** | Login, session, user identity | ✅ Active |
+| **Supabase Database** | PostgreSQL via Supabase Client SDK | ✅ Active |
+| **Supabase Realtime** | Planned for `release_ops_jobs`, `release_ops_releases` | ❌ Not configured |
+| **Google Play Publishing API** | Upload AAB, promote/halt rollout, create edits | ❌ Worker-side only (external project) |
+| **Google Play Reporting GCS** | Download CSV reports → parse → upsert metrics | ❌ Worker-side only (external project) |
+| **2Captcha** | Not used by Release Ops | N/A (crawler only) |
+| **Redis** | > Not Found | |
+| **MinIO / S3** | > Not Found | |
 
-Third-party mirrors are not integrated. If ever introduced, they require a separate source strategy, explicit opt-in, version/signature verification, malware scanning, and policy/legal review.
+---
 
 ## 14. Configuration
 
-### 14.1 Vercel/dashboard variables
+### Dashboard environment variables
 
 | Variable | Purpose |
 | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | Existing Supabase URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Existing browser/SSR public key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only gateway/repository operations |
-| `RELEASE_OPS_ARTIFACT_BUCKET` | Private bucket name |
-| `RELEASE_OPS_APK_RETENTION_HOURS` | Artifact expiry policy |
-| `RELEASE_OPS_WORKER_LEASE_SECONDS` | Claim lease duration |
-| `RELEASE_OPS_MAX_EVENT_BYTES` | Event metadata limit |
-| `CRON_SECRET` | Protect cleanup route |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-side privileged access |
+| `RELEASE_OPS_ARTIFACT_STORAGE_BUCKET` | Planned: durable artifact bucket |
 
-### 14.2 Worker variables
+### Worker environment variables (planned)
 
 | Variable | Purpose |
 | --- | --- |
-| `RELEASE_OPS_API_URL` | Vercel Release Ops Worker Gateway base URL |
-| `RELEASE_OPS_TOKEN` | Scoped worker token |
-| `RELEASE_OPS_WORKER_ID` | Stable registered worker UUID |
-| `WORKER_NAME` | Operator-visible name |
-| `WORKER_CAPABILITIES` | Must include `pull_apk` |
-| `WORKER_VERSION` | Runtime build version |
-| `ADB_PATH` | ADB executable path |
-| `ADB_DEVICE_SERIAL` | Explicit device serial |
-| `ADB_SERVER_SOCKET` | Optional host ADB socket for container deployment |
-| `EMULATOR_PATH` | Emulator executable path when worker manages AVD |
-| `AVD_NAME` | Default `chpay` from supplied runbook |
-| `APK_WORK_DIR` | Local temporary root |
-| `INSTALL_TIMEOUT_MS` | Overall Play installation timeout |
-| `ADB_COMMAND_TIMEOUT_MS` | Per-command timeout |
-| `LISTING_TIMEOUT_MS` | Listing HTTP timeout |
-| `MAX_JOB_BYTES` | Local artifact safety limit |
-| `MIN_FREE_DISK_GB` | Worker readiness threshold |
-| `POLL_INTERVAL_MS` | Base empty-queue delay |
-| `LOG_LEVEL` | Structured log level |
+| `RELEASE_OPS_API_URL` | Worker gateway base URL |
+| `RELEASE_OPS_TOKEN` | Scoped worker API token |
+| `RELEASE_OPS_WORKER_ID` | Stable worker identity |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Service account credentials |
+| `RELEASE_OPS_TEMP_DIR` | Local temp folder |
+| `RELEASE_OPS_LOG_DIR` | Local worker logs |
+| `RELEASE_OPS_CACHE_DIR` | Local artifact/report cache |
 
-Validate all configuration at startup. Do not hardcode `$HOME`, local usernames, Vercel URLs, Supabase credentials, device serials, or Storage object paths.
+---
 
 ## 15. Logging
 
-### 15.1 Dashboard/Gateway logs
+| Type | Implementation |
+| --- | --- |
+| Request Log | > Not Found — no request logging middleware for release-ops |
+| Audit Log | ✅ `release_ops_audits` table — `promoteRelease()` and `haltRelease()` auto-write with action, entity_type, entity_id, details |
+| Error Log | `console.error()` in Server Actions catch blocks |
+| Job Event Log | `release_ops_job_events` table (append-only) — structured `{ level, stage, message, progress, metadata }` |
+| Access Log | > Not Found — relies on Vercel/platform-level logs |
 
-Include:
-
-- request ID;
-- authenticated token ID, not raw token;
-- worker ID, job ID, attempt, endpoint, status, and duration;
-- RPC result classification;
-- artifact object ID/path only when not sensitive under deployment policy.
-
-### 15.2 Worker logs
-
-Include:
-
-- worker ID/version;
-- job ID/package ID/device serial;
-- pipeline stage and duration;
-- bounded child-process exit information;
-- split count, screenshot count, byte counts, and checksum summary;
-- cleanup result.
-
-### 15.3 Job events
-
-Events are user-visible and smaller than logs:
-
-```json
-{
-  "level": "info",
-  "stage": "pulling_apks",
-  "message": "Pulled 4 of 5 APK files",
-  "progress": 68,
-  "metadata": {
-    "completed": 4,
-    "total": 5
-  }
-}
-```
-
-Never include worker tokens, service-role keys, Google credentials/cookies, signed URLs, full UI dumps, or unbounded command output in logs/events.
+---
 
 ## 16. Error Handling
 
-### 16.1 Stable APK error codes
+| Layer | Strategy |
+| --- | --- |
+| Server Actions | `throw new Error("message")` — propagated to client |
+| Server Actions (createPlayAccount) | Try/catch → `{ success: false, error: "message" }` return pattern |
+| Service Layer | `throw new Error("Release không tồn tại.")` — validation before mutation |
+| Repository Layer | Supabase `{ data, error }` — `if (error) throw error` |
+| UI Layer | `try/catch` in `loadData()` → `console.error()` |
+| CSRF failure | `throw new Error("Xác thực bảo mật CSRF thất bại.")` |
+| Global Error Boundary | > Not Found — no release-ops-specific error boundary |
+| Retry / Fallback | > Not Found at dashboard level — retry logic planned for worker job queue |
 
-| Code | Retry | Meaning |
-| --- | ---: | --- |
-| `INVALID_PLAY_URL` | No | Invalid host/path/package input |
-| `APP_NOT_FOUND` | No | Listing/app unavailable |
-| `UNSUPPORTED_REGION` | No | Device account/region cannot install |
-| `PLAY_LOGIN_REQUIRED` | No automatic retry | Operator must repair device session |
-| `PAYMENT_OR_APPROVAL_REQUIRED` | No | Workflow will not bypass requirement |
-| `LISTING_PARSE_FAILED` | Manual/bounded | Google markup changed |
-| `DEVICE_UNAVAILABLE` | Yes | ADB/device offline |
-| `EMULATOR_BOOT_TIMEOUT` | Yes, bounded | AVD failed readiness |
-| `PLAY_UI_CHANGED` | Manual/bounded | Expected exact action not found |
-| `INSTALL_TIMEOUT` | Yes, bounded | Install never completed |
-| `APK_PATHS_MISSING` | Yes, bounded | `pm path` missing/empty after install |
-| `APK_PULL_FAILED` | Yes, bounded | ADB pull failed |
-| `APK_VALIDATION_FAILED` | No automatic retry | Invalid/incomplete artifact |
-| `ARTIFACT_UPLOAD_FAILED` | Yes | Signed upload failed |
-| `STALE_JOB_LEASE` | No | Worker no longer owns job |
-| `CANCELLED` | No | Admin requested cancellation |
-| `INSUFFICIENT_DISK` | Yes after repair | Worker below threshold |
-
-### 16.2 Retry policy
-
-- Only retry explicitly transient codes.
-- Retry an external substep with bounded exponential backoff and jitter.
-- Whole-job retries respect `attempt_count`/`max_attempts` and create a new attempt timeline.
-- Do not repeatedly click Install without dumping and re-evaluating UI state.
-- Cleanup runs after every failed attempt before requeue.
-- Permanent/exhausted jobs enter `dead_letter` for manual review.
-
-### 16.3 Lease failure
-
-If heartbeat returns stale/cancelled:
-
-1. stop before the next irreversible/external operation;
-2. do not complete or upload under an obsolete lease;
-3. clean device and local state;
-4. preserve only local bounded diagnostics if policy allows;
-5. allow control-plane reconciliation to requeue or dead-letter.
+---
 
 ## 17. Security
 
-### 17.1 Input and command safety
+| Control | Status | Implementation |
+| --- | --- | --- |
+| CSRF Protection | ✅ | `verifyCSRF()` on all 7 write actions |
+| Admin Guard | ✅ | `requireAdmin()` on all 21 actions |
+| Token Guard (Worker) | Planned | SHA-256 hash + scope check via `token.guard.ts` |
+| Idempotency Key | Planned | `release_ops_jobs.idempotency_key` (UNIQUE constraint) |
+| Audit Trail | ✅ | Auto-write on promote/halt |
+| Input Validation | Partial | Service validates release exists before promote/halt. Full validation (package name, version code, track, checksum) planned. |
+| Secret Exposure | Safe | Server Actions are server-side only; `SUPABASE_SERVICE_ROLE_KEY` never exposed to client |
+| XSS | ✅ | React auto-escapes. No `dangerouslySetInnerHTML` found. |
+| SQL Injection | ✅ | Supabase SDK parameterized queries |
+| Rate Limit | > Not Found | |
 
-- Allow only HTTPS `play.google.com/store/apps/details` URLs.
-- Rebuild canonical URL from validated package ID and locale.
-- Validate package ID before use.
-- Execute ADB/emulator with `spawn(executable, argumentArray)`; never interpolate into a shell command.
-- Generate all local paths and Storage keys server-side/worker-side from trusted IDs.
-- Resolve and verify local paths remain under the configured job root.
-
-### 17.2 Control-plane security
-
-- All dashboard writes use `verifyCSRF()` and `requireAdmin()`.
-- All worker operations require hashed, active, unexpired, scoped tokens.
-- Worker endpoint functions are purpose-built; no arbitrary Supabase proxy.
-- Every mutation validates worker ownership and unexpired lease.
-- Service-role key exists only in Vercel server environment.
-- Private Storage bucket; signed URLs are short-lived.
-- Rate limits and payload limits apply to dashboard actions and gateway endpoints.
-
-### 17.3 Worker/device security
-
-- No inbound worker port.
-- Do not expose ADB over a public interface.
-- Use a dedicated Play account/device profile.
-- Run worker with least filesystem/device permission.
-- Do not execute extracted APKs on the host.
-- Preserve pre-existing packages; uninstall only job-installed package.
-- Record APK checksums, version, device profile, and source URL.
-- Keep temporary data under TTL and restrictive permissions.
-
-### 17.4 Artifact security
-
-- Upload directly to a private bucket through a server-issued object key and signed contract.
-- Verify object existence, expected size, and reported checksum before job success.
-- Download requires an authenticated Server Action.
-- Do not expose permanent public URLs.
-- Audit create, retry, download issuance, delete, and expiry actions as required by policy.
-
-### 17.5 Policy boundary
-
-The worker reports paid, approval-required, removed, or region-restricted apps; it does not bypass those controls or silently switch to an APK mirror. Extracted APK distribution may be subject to application licenses/platform terms, so access should remain admin-only and retention short.
+---
 
 ## 18. Performance
 
-### 18.1 Expected bottleneck
+| Technique | Status | Detail |
+| --- | --- | --- |
+| Pagination | ✅ | Store Performance Report: `page`, `pageSize`, `totalPages` |
+| Sorting | ✅ | Reports: sortable 20-column headers |
+| Filtering | ✅ | Reports: preset dates, search, store, thresholds |
+| Lazy Loading | Partial | Pages load data in `useEffect` on mount |
+| Batch Query | Partial | `getBatchOperations()` does N+1: `findAll(500)` per batch to filter jobs — potential performance issue |
+| Index | Unknown | No migration files to verify indexes on `release_ops_*` tables |
+| Connection Pool | ✅ | Supabase client manages pooling via PostgREST |
+| Caching | > Not Found | No in-memory or Redis caching |
+| Streaming | > Not Found | |
+| Compression | > Not Found at app level — Vercel handles gzip |
 
-Android installation and Play download are the serialized bottlenecks. Vercel and Supabase can accept many requests, but one ADB device can safely run only one installation/pull job at a time.
-
-### 18.2 Optimizations
-
-- Keep AVD running between jobs.
-- Claim only when a healthy device slot and sufficient disk are available.
-- Stream listing media, hashes, ZIP creation, Storage upload, and browser download.
-- Upload directly to Storage; never proxy archive bytes through Vercel.
-- Use Realtime for changes and paginated reads for history.
-- Send bounded progress events at meaningful stage/percentage changes, not every poll iteration.
-- Use short DB transactions and atomic RPCs for claim/heartbeat/completion.
-- Scrape listing before device acquisition only if the worker still maintains its lease and cancellation checks.
-
-### 18.3 Deduplication
-
-Use an idempotency key for the create action. Optional active-job deduplication can reject or return an existing non-terminal `pull_apk` job for the same package/locale/device profile. Do not reuse an old artifact as “latest” unless freshness/version verification is explicitly designed.
+---
 
 ## 19. Scalability
 
-### 19.1 Capacity model
+| Scale | Potential Issue |
+| --- | --- |
+| 100 apps | No issue — current architecture handles fine |
+| 1,000 jobs | `getBatchOperations()` loads ALL jobs (`findAll(500)`) per batch → N+1 query explosion |
+| 10,000 ASO metrics | `getStorePerformanceReportService()` loads ALL raw metrics then filters in JS → should use DB-side aggregation |
+| 100 concurrent workers | Job claim needs atomic `UPDATE ... WHERE status='queued' LIMIT 1 RETURNING *` via Supabase RPC — not yet implemented |
+| Multi-tenant | Not applicable — single-tenant admin dashboard |
 
-Each worker advertises `pull_apk` plus device profiles and available slots. The claim RPC matches compatible job type/capability and prevents over-claiming.
-
-```text
-fleet throughput ≈ sum(device slots × 60 / average job minutes)
-```
-
-### 19.2 Scale stages
-
-| Stage | Deployment | Data/control plane |
-| --- | --- | --- |
-| MVP | One APK worker + one AVD `chpay` | Existing Vercel/Supabase |
-| Small fleet | Several workers, one device each | Same gateway, capability-aware RPC |
-| Multi-profile | Workers grouped by ABI/density/locale/region | Device-profile matching in claim |
-| High volume | Dedicated worker gateway service if Vercel limits become material | Supabase remains system of record or queue is deliberately migrated |
-
-### 19.3 Scaling constraints
-
-- More web instances do not increase APK throughput.
-- Each Play-enabled device/account has operational and policy constraints.
-- Different device profiles produce different split sets.
-- UI/listing changes can break many workers simultaneously.
-- Supabase Storage lifecycle/cost and Realtime event volume must be monitored.
-- Windows Server 2012 hosts from the master Release Ops fleet may be unsuitable for modern accelerated Android emulation; APK workers should be scheduled only to hosts that pass device capability/readiness checks.
+---
 
 ## 20. Deployment
 
-### 20.1 Deployment topology
+| Component | Deployment | Evidence |
+| --- | --- | --- |
+| Dashboard | Vercel | Host evidence in architecture diagram |
+| Supabase | Managed cloud | `NEXT_PUBLIC_SUPABASE_URL` |
+| Crawler Worker | Docker Compose on VPS | `crawler-pipeline/docker-compose.yml` |
+| Release Ops Worker | Windows Server 2012 VPS | Target architecture (not implemented in SinoMedia) |
+| CI/CD | GitHub Actions | `.github/workflows/deploy-crawler.yml` (crawler only) |
+| Release Ops CI/CD | > Not Found | |
 
-```mermaid
-flowchart TB
-    subgraph Cloud["Cloud control plane"]
-        Vercel["Vercel Next.js deployment"]
-        SupabaseDB[("Supabase DB and Realtime")]
-        SupabaseStorage[("Private Storage bucket")]
-        Vercel --> SupabaseDB
-        Vercel --> SupabaseStorage
-    end
-
-    subgraph Host["Dedicated Android-capable host"]
-        Docker["Docker Compose"]
-        Worker["apk-pull-worker container"]
-        ADB["Host ADB server"]
-        AVD["AVD chpay or device"]
-        Temp["Mounted temporary volume"]
-        Docker --> Worker
-        Worker --> ADB
-        ADB --> AVD
-        Worker --> Temp
-    end
-
-    Worker -->|"outbound HTTPS polling"| Vercel
-    Worker -->|"direct signed upload"| SupabaseStorage
-```
-
-### 20.2 Recommended Docker model
-
-Use Docker for the Node worker, while ADB server and the Play-enabled emulator run on the host:
-
-- Worker reaches host ADB through an explicitly configured private socket/address.
-- The ADB endpoint is bound/firewalled so it is not publicly reachable.
-- Worker mounts only a dedicated temporary volume.
-- The emulator retains its signed-in Play profile across worker container rebuilds.
-- `restart: unless-stopped` and health checks restart the worker runtime, not the AVD profile.
-
-If host/container ADB integration is unreliable on the chosen OS, run the same worker package natively as a supervised service. This changes deployment packaging, not the control-plane contract.
-
-### 20.3 CI/CD
-
-Proposed workflow:
-
-1. lint, type-check, unit tests;
-2. build worker image;
-3. dependency/image scanning;
-4. publish immutable image tag and digest;
-5. deploy worker separately from Vercel dashboard;
-6. worker registers `workerVersion` and health;
-7. controlled E2E smoke test on dedicated AVD;
-8. rollback worker image without changing Supabase job history.
-
-Do not make AVD E2E a required step on every dashboard-only deployment.
-
-### 20.4 Readiness
-
-Worker should advertise no available slot unless all are true:
-
-- gateway authentication succeeds;
-- ADB executable/server is reachable;
-- exactly the configured device serial is online;
-- device boot is complete;
-- Play Store package exists and session is usable;
-- work disk is above free-space threshold;
-- worker version supports current payload schema.
+---
 
 ## 21. Testing
 
-### 21.1 Dashboard/control-plane tests
+> Not Found — no test files exist for the release-ops module. No unit tests, integration tests, or E2E tests.
 
-- Server Actions enforce admin and CSRF rules.
-- Google Play URL/package validation rejects SSRF and malformed input.
-- Job/audit creation is atomic or safely compensated.
-- Claim RPC is atomic under concurrent workers.
-- Capability mismatch never assigns `pull_apk` to a non-APK worker.
-- Heartbeat rejects wrong worker, expired lease, wrong attempt, and terminal job.
-- Completion is idempotent and requires verified artifact.
-- Signed download issuance requires admin and non-expired artifact.
-- Realtime subscription updates job timeline.
-- Cleanup route requires cron authentication and is idempotent.
-
-### 21.2 Worker unit tests
-
-- Parse Google Play URLs and canonicalize locale.
-- Parse stored Play HTML fixtures.
-- Parse UIAutomator XML and exact control bounds.
-- Classify app-not-found, region, login, payment, timeout, and UI drift.
-- Parse all `pm path` lines and preserve split filenames.
-- Validate ZIP/`AndroidManifest.xml` and compute checksum.
-- Cleanup decision never uninstalls a pre-existing package.
-- Cancellation/lease loss stops at safe checkpoints.
-
-### 21.3 Integration tests
-
-- Fake Gateway server exercises claim/heartbeat/events/upload/completion.
-- Fake ADB process covers offline, timeout, one APK, multiple splits, malformed output, and partial pull.
-- Temporary filesystem covers safe path containment and crash reconciliation.
-- Supabase test project covers RLS/RPC/Storage policies.
-- Direct signed upload verifies metadata before job completion.
-
-### 21.4 E2E tests
-
-- Dedicated Play-enabled AVD and known free test application.
-- Submit from dashboard → worker claim → install → all splits → Storage → dashboard download.
-- Already-installed package remains installed after job.
-- Cancellation during install/pull performs cleanup.
-- Worker crash and expired lease do not allow two completions.
-- Expired artifact disappears from Storage and UI.
-
-### 21.5 Acceptance criteria
-
-- APK jobs appear in the same Release Ops queue and worker fleet views as other jobs.
-- No Android work occurs inside Vercel runtime.
-- No second job database or public worker backend is introduced.
-- One device runs at most one active job.
-- ZIP contains `base.apk`, every split from `pm path`, listing assets, manifest, and diagnostics.
-- Worker uploads directly to private Storage.
-- Job succeeds only after artifact verification.
-- Dashboard receives live events and issues authorized short-lived downloads.
-- Local/device/durable cleanup paths are tested.
+---
 
 ## 22. Coding Convention
 
-Existing dashboard naming/layering should be preserved:
+| Convention | Pattern | Evidence |
+| --- | --- | --- |
+| File naming | `kebab-case` | `release-ops-app.repo.ts`, `release-ops.service.ts` |
+| Class naming | `PascalCase` | `ReleaseOpsAppRepository`, `ReleaseOpsReleaseRepository` |
+| Function naming | `camelCase` | `getApps()`, `createApp()`, `promoteRelease()` |
+| Type naming | `PascalCase` | `AppRegistryItem`, `StorePerformanceRow` |
+| DB column naming | `snake_case` | `package_name`, `play_account_id`, `created_at` |
+| Server Action file | `{module}.actions.ts` | `release-ops.actions.ts` |
+| Service file | `{module}.service.ts` | `release-ops.service.ts` |
+| Repository file | `{module}-{entity}.repo.ts` | `release-ops-app.repo.ts` |
+| Type file | `{module}.ts` in `types/` | `types/release-ops.ts` |
+| Repository class | Injects `DbClient` via constructor | `constructor(private readonly db: DbClient)` |
+| Mapper functions | `mapDb{Entity}To{UIType}()` | `mapDbAppToRegistryItem()`, `mapDbReleaseToItem()` |
+| Server Action guards | Read: `requireAdmin()` / Write: `verifyCSRF()` + `requireAdmin()` | Consistent across all 21 actions |
+| Page directive | `"use client"` | All release-ops pages |
+| Comments | Vietnamese | `/** Lấy batch operations */` |
 
-- `release-ops.actions.ts` for guarded web entry points;
-- `release-ops.service.ts` for orchestration;
-- one repository per `release_ops_*` table;
-- shared types in `types/release-ops.ts`;
-- gateway handlers remain thin and call purpose-built services/RPCs.
+---
 
-Worker conventions:
+## 23. Design Pattern
 
-- strict TypeScript;
-- discriminated job payload/result unions by `job_type` and `schemaVersion`;
-- adapters for ADB, Play listing, Play UI, archive, and Storage;
-- no shell command construction with interpolated input;
-- typed error codes and retry classifications;
-- injected clock/HTTP/process/filesystem interfaces for testing;
-- UTC timestamps internally;
-- structured logging and bounded metadata;
-- idempotent cleanup and completion.
-
-## 23. Design Patterns
-
-### 23.1 Existing patterns evidenced by master architecture
-
-- Server Action → Service → Repository layering.
-- Repository pattern for Supabase tables.
-- Detached worker gateway with token guard.
-- Polling worker and database-backed job lifecycle.
-
-### 23.2 Proposed extension patterns
-
-| Pattern | APK application |
+| Pattern | Where Detected |
 | --- | --- |
-| Control plane / execution plane | Vercel/Supabase controls; device worker executes |
-| Ports and adapters | Isolate ADB, Play UI/listing, Storage, Gateway |
-| Capability-based dispatch | Only `pull_apk` workers claim APK jobs |
-| Lease/heartbeat | Exclusive ownership and crash detection |
-| State machine | Generic Release Ops states plus event stages |
-| Saga/compensation | Uninstall and local cleanup after multi-step failure |
-| Direct-to-object-storage | Large bytes bypass Vercel |
-| Idempotency | Safe create, completion, retry, and deletion |
-| Append-only event stream | Inspectable user-visible progress timeline |
+| **Repository Pattern** | 9 repository classes encapsulating Supabase table access |
+| **Service Layer** | `release-ops.service.ts` — business logic between actions and repos |
+| **Server Action Pattern** | Next.js `"use server"` functions as API boundary |
+| **Guard Pattern** | `requireAdmin()`, `verifyCSRF()` — access control decorators |
+| **Factory / DI** | `getRepos()` creates all 9 repos with injected `DbClient` |
+| **Mapper Pattern** | 5 `mapDbXxxToYyy()` functions — DB row → UI domain type |
+| **Pipeline / Builder** | `getStorePerformanceReportService()` — 9-step aggregation pipeline |
+| **State Machine** | `release_ops_jobs.status` — `queued → claimed → running → succeeded/failed/dead_letter` |
+| **Audit Trail** | `promoteRelease()` / `haltRelease()` auto-append to `release_ops_audits` |
+| **Table-based Queue** | `release_ops_jobs` as job queue (claim, heartbeat, lease) |
 
-No separate microservice database, CQRS store, event-sourcing platform, or message broker is required for the first version.
+---
 
 ## 24. Strengths
 
-- Integrates with the existing Release Ops dashboard, auth, tables, events, workers, audits, and Realtime model.
-- Keeps Vercel suitable for short control-plane requests while long Android work runs elsewhere.
-- Avoids duplicating Supabase data into a worker-local queue database.
-- Uses the planned Release Ops gateway rather than exposing Supabase directly to workers.
-- Avoids moving large ZIP bytes through Vercel.
-- Enables a shared `/workers` and `/jobs` operational view across upload, report, and APK workloads.
-- Makes device capability/profile explicit, which matters for split APK output.
-- Separates worker deployment lifecycle from dashboard deployment.
-- Preserves safe cleanup and short artifact retention.
-
-## 25. Technical Debt and Risks
-
-### 25.1 Existing gaps from `ARCHITECTURE_MASTER.md`
-
-| Gap | APK impact |
+| Aspect | Assessment |
 | --- | --- |
-| Release Ops Worker Gateway not implemented | Worker cannot claim/report securely |
-| Worker runtime not implemented in SinoMedia | APK capability has no shared runtime yet |
-| Release Ops migrations absent locally | Schema/RPC/Storage cannot be reproduced safely |
-| Artifact repository missing | Dashboard cannot manage ZIP metadata |
-| Job-event repository missing | Timeline/Realtime progress incomplete |
-| Realtime not configured | UI needs polling/refresh |
-| Worker/jobs/artifacts pages missing | Operational visibility incomplete |
+| **Architecture** | Clean layered separation: Page → Action → Service → Repository → DB. No leaky abstractions. |
+| **Consistency** | All 21 actions follow identical guard pattern. All repos follow identical class structure. |
+| **Data integrity** | Promote/Halt atomically creates: (1) release update, (2) job record, (3) audit record. |
+| **Feature completeness** | 20-column report with full aggregation pipeline is enterprise-grade. |
+| **Code organization** | Single service file keeps all logic discoverable. 9 focused repos prevent table access sprawl. |
+| **Security** | CSRF + Admin on every write. No raw SQL. No client-exposed secrets. |
 
-### 25.2 APK-specific risks
+---
 
-| Risk | Severity | Mitigation |
+## 25. Technical Debt
+
+| Issue | Severity | Location |
 | --- | --- | --- |
-| Play Android UI changes | High | Exact UI adapter, XML fixtures, diagnostics, manual dead-letter |
-| Play listing HTML changes | High | Isolated parser and stored fixtures/raw HTML |
-| Device/account/region mismatch | High | Capability metadata and explicit error codes |
-| Device-specific split output misunderstood | High | Store device profile and clear artifact UI |
-| Duplicate workers execute same job | High | Atomic RPC claim, lease, heartbeat, completion check |
-| Vercel proxies large archive | High | Direct signed Storage transfer |
-| Worker receives service-role key | Critical | Gateway-only privileged operations |
-| Cleanup removes pre-existing app | High | Persist pre-install state and test invariant |
-| ADB exposed over network | Critical | Host-only/private binding and firewall |
-| Disk fills on worker or Storage | High | Readiness threshold, immediate local cleanup, TTL cleanup |
-| Windows Server 2012 cannot host modern AVD reliably | High | Dedicated compatible host and readiness/capability routing |
-| Unauthorized APK redistribution | High | Admin-only access, private bucket, short retention, audit/policy |
+| **N+1 query in getBatchOperations()** | High | [release-ops.service.ts:463](file:///d:/Python/SinoMedia/dashboard/lib/services/release-ops.service.ts#L463) — `findAll(500)` per batch |
+| **In-memory aggregation for reports** | Medium | `getStorePerformanceReportService()` loads all raw metrics then filters in JS |
+| **No migration files** | High | `release_ops_*` tables exist remotely but not in `supabase/migrations/` |
+| **No tests** | High | Zero test coverage for release-ops module |
+| **Missing repositories** | Medium | `release_ops_job_events` and `release_ops_artifacts` have no repo |
+| **Unused actions** | Low | `getApp(id)`, `getRelease(id)`, `getJobs()`, `getWorkers()`, `createRelease()` — no UI caller |
+| **Empty dashboard directory** | Low | `release-ops/dashboard/` exists but is empty |
+| **God Service file** | Medium | `release-ops.service.ts` is 877 lines — could split into domain services |
+| **Hardcoded SDK policy** | Low | [sdk/page.tsx:8](file:///d:/Python/SinoMedia/dashboard/app/(main)/dash/release-ops/sdk/page.tsx#L8) — should be DB-configurable |
 
-## 26. Implementation Plan
+---
 
-### Phase 0 — Confirm contracts and deployment
+## 26. Improvement Proposal
 
-- [ ] Confirm page route `/dash/release-ops/apk-pull`.
-- [ ] Confirm private Supabase Storage as durable artifact store.
-- [ ] Confirm artifact retention, recommended default 24 hours.
-- [ ] Confirm dedicated device host OS and AVD/physical-device choice.
-- [ ] Confirm `google_play_only` source policy and no mirror fallback.
+### High Priority
 
-### Phase 1 — Version-control Release Ops foundations (P0)
+| # | Proposal | Reason |
+| --- | --- | --- |
+| 1 | **Add `release_ops_*` migration SQL files** | Schema not version-controlled — cannot reproduce DB from scratch |
+| 2 | **Implement Worker Gateway API** | Core feature not built — workers cannot connect |
+| 3 | **Fix N+1 in getBatchOperations()** | Current code loads ALL jobs for every batch — `O(B × J)` |
+| 4 | **Add missing pages** | Workers, Jobs, Audit, Detail pages — actions exist but no UI |
 
-- [ ] Add complete `release_ops_*` migrations currently missing from the repo.
-- [ ] Add RLS and service-role-only RPC policies.
-- [ ] Implement atomic capability-aware job claim/heartbeat/event/complete/fail RPCs.
-- [ ] Add `pull_apk` type and artifact retention fields.
-- [ ] Add private Storage bucket migration/policy.
-- [ ] Enable Realtime for jobs/events required by UI.
+### Medium Priority
 
-### Phase 2 — Shared Worker Gateway (P0)
+| # | Proposal | Reason |
+| --- | --- | --- |
+| 5 | **Move report aggregation to DB** | `getStorePerformanceReportService()` does in-memory aggregation — should use Supabase RPC for scalability |
+| 6 | **Split service file** | 877 lines → split into `release-ops-release.service.ts`, `release-ops-report.service.ts`, etc. |
+| 7 | **Add repos for job_events + artifacts** | 2 tables without repositories |
+| 8 | **Add test coverage** | Zero tests — at minimum unit tests for service functions |
 
-- [ ] Implement `/api/release-ops/worker/v1/[...path]/route.ts`.
-- [ ] Reuse/harden SHA-256 token guard with Release Ops scopes.
-- [ ] Implement register, heartbeat, claim, start, heartbeat, events, fail, succeed.
-- [ ] Implement signed upload-init/upload-complete and object verification.
-- [ ] Add request IDs, rate/body limits, idempotency, stale-lease rejection.
+### Low Priority
 
-### Phase 3 — APK worker MVP (P0)
+| # | Proposal | Reason |
+| --- | --- | --- |
+| 9 | **Make SDK policy DB-configurable** | Currently hardcoded in page component |
+| 10 | **Clean up unused actions** | Remove or wire up `getApp(id)`, `getRelease(id)`, etc. |
+| 11 | **Enable Supabase Realtime** | Live updates for job/release status changes |
+| 12 | **Add error boundary for release-ops** | Graceful error handling instead of white screen |
 
-- [ ] Implement gateway client, polling, lease heartbeat, cancellation, and cleanup.
-- [ ] Implement Google Play URL/listing adapter.
-- [ ] Implement device preflight and AVD `chpay` lifecycle.
-- [ ] Implement exact Play UI installation workflow.
-- [ ] Pull all base/split APKs and diagnostics.
-- [ ] Validate, hash, manifest, ZIP, and direct Storage upload.
-- [ ] Package worker with Docker Compose plus native fallback runbook.
-
-### Phase 4 — Dashboard integration (P1)
-
-- [ ] Add APK Pull tab/page and job detail page.
-- [ ] Add guarded Server Actions and service methods.
-- [ ] Implement artifact and job-event repositories.
-- [ ] Add Realtime subscriptions and fallback refresh.
-- [ ] Add cancel, retry, download, delete, and expiry UI.
-- [ ] Include APK jobs in shared `/jobs`, `/workers`, `/artifacts`, and `/audit` pages when those pages are implemented.
-
-### Phase 5 — Reliability and operations (P1)
-
-- [ ] Add Vercel Cron artifact expiry route.
-- [ ] Add stale job/worker reconciliation.
-- [ ] Add device readiness/health display.
-- [ ] Add dead-letter/manual retry workflow.
-- [ ] Add metrics and alerting for queue, failure code, lease loss, device health, disk, and Storage usage.
-- [ ] Run security and policy review.
-
-### Phase 6 — Scale only when measured (P2)
-
-- [ ] Add more device workers using the same capability model.
-- [ ] Add device-profile routing.
-- [ ] Add batch multi-URL parent operations.
-- [ ] Evaluate a dedicated gateway only if Vercel control-plane limits are observed.
-
-### Recommended implementation order
-
-```mermaid
-flowchart LR
-    Migrations["Migrations and RPCs"] --> Gateway["Worker Gateway"]
-    Gateway --> Worker["APK worker"]
-    Worker --> Storage["Artifact transfer"]
-    Storage --> UI["Dashboard and Realtime"]
-    UI --> Ops["Cleanup and operations"]
-```
-
-Do not start UI-first with mock job behavior. The queue/RPC/gateway contract must exist before the dashboard promises executable APK jobs.
+---
 
 ## 27. Appendix
 
-### 27.1 Worker capability metadata
+### All Mermaid Diagrams Index
 
-```json
-{
-  "workerVersion": "1.0.0",
-  "capabilities": ["pull_apk"],
-  "runtime": {
-    "os": "windows-or-linux-or-macos",
-    "containerized": true
-  },
-  "devices": [
-    {
-      "deviceId": "emulator-5554",
-      "avdName": "chpay",
-      "status": "ready",
-      "playReady": true,
-      "sdk": 35,
-      "abi": "arm64-v8a",
-      "density": 420,
-      "locale": "en-US",
-      "maxParallelJobs": 1
-    }
-  ]
-}
-```
+| # | Type | Section | Description |
+| --- | --- | --- | --- |
+| 1 | Flowchart | [4.1](#41-main-system-architecture-6-layers) | Main System Architecture — 6 layers |
+| 2 | Flowchart | [4.2](#42-dashboard-internal-data-flow) | Dashboard Internal Data Flow — Actions → Service → Repos |
+| 3 | Flowchart | [4.3](#43-page--server-action--data-mapping) | Page ↔ Server Action Mapping |
+| 4 | Flowchart | [4.4](#44-store-performance-report-20-column-pipeline) | Report 20-Column Aggregation Pipeline |
+| 5 | State Diagram | [4.5](#45-worker-job-state-machine) | Worker Job State Machine |
+| 6 | ER Diagram | [9.3](#93-er-diagram) | Full ER Diagram — 10 tables |
+| 7 | Sequence | [11.1](#111-upload-aab-flow) | Upload AAB Flow |
+| 8 | Sequence | [11.2](#112-promote-release-flow) | Promote Release Flow |
+| 9 | Sequence | [11.3](#113-halt-release-flow) | Halt Release Flow |
+| 10 | Sequence | [11.4](#114-store-performance-report-query) | Store Performance Report Query |
+| 11 | Flowchart | [12](#12-dependency-graph) | Module Dependency Graph |
 
-### 27.2 Pipeline stage vocabulary
+### Source File Reference
 
-| Stage | Suggested progress range |
-| --- | ---: |
-| `claimed` | 1–3 |
-| `scraping_listing` | 4–20 |
-| `preparing_device` | 21–30 |
-| `installing` | 31–55 |
-| `pulling_apks` | 56–72 |
-| `validating` | 73–80 |
-| `packaging` | 81–88 |
-| `uploading_artifact` | 89–96 |
-| `cleaning` | 97–99 |
-| `completed` | 100 |
-
-Progress is a UI hint; status, lease, artifact verification, and terminal result remain correctness signals.
-
-### 27.3 Manifest minimum fields
-
-```text
-job_id=<uuid>
-package=<packageId>
-play_url=<canonical URL>
-pulled_at=<ISO timestamp>
-version_name=<versionName>
-version_code=<versionCode>
-device_serial=<serial>
-device_sdk=<sdk>
-device_abi=<abi>
-device_density=<density>
-device_locale=<locale>
-
-splits:
-<filename> <size_bytes>
-
-sha256:
-<hash> <filename>
-
-listing:
-screenshots=<count>
-description=<present|missing>
-icon=<present|missing>
-raw_html=<present|missing>
-```
-
-### 27.4 Cleanup invariants
-
-1. Never uninstall a package that existed before the job.
-2. Never delete a path not proven to be below the configured job root.
-3. Never mark a job succeeded before the private object is verified.
-4. Never accept completion from a worker without the current unexpired lease.
-5. Never let the worker choose an arbitrary Storage object key.
-6. Never put service-role credentials or signed URLs in job payloads/events.
-7. Never run two APK jobs concurrently on one device.
-
-### 27.5 Final Definition of Done
-
-- [ ] APK Pull is a Release Ops capability, not a separate product/auth/database.
-- [ ] Dashboard is deployed on the existing Vercel project.
-- [ ] Jobs/events/workers/artifacts/audits live in existing `release_ops_*` data model.
-- [ ] Worker runs outside Vercel and communicates through outbound HTTPS only.
-- [ ] Worker token has exact scopes and no Supabase service-role key.
-- [ ] Atomic capability-aware claim and lease checks prevent duplicate execution.
-- [ ] One device executes one APK job at a time.
-- [ ] All installed APK splits and listing assets are included and verified.
-- [ ] Archive uploads directly to private Supabase Storage.
-- [ ] Dashboard receives Realtime progress and issues authorized download URLs.
-- [ ] Device, local disk, Storage retention, cancellation, retry, and dead-letter paths are tested.
-- [ ] Third-party mirror fallback remains disabled.
+| File | Lines | Purpose |
+| --- | --- | --- |
+| [release-ops.actions.ts](file:///d:/Python/SinoMedia/dashboard/lib/actions/release-ops.actions.ts) | 178 | 21 Server Actions |
+| [release-ops.service.ts](file:///d:/Python/SinoMedia/dashboard/lib/services/release-ops.service.ts) | 877 | Service layer (30+ functions) |
+| [release-ops-app.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-app.repo.ts) | 101 | App repository |
+| [release-ops-release.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-release.repo.ts) | — | Release repository |
+| [release-ops-job.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-job.repo.ts) | — | Job repository |
+| [release-ops-play-account.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-play-account.repo.ts) | — | Play account repository |
+| [release-ops-aso.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-aso.repo.ts) | — | ASO repository |
+| [release-ops-worker.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-worker.repo.ts) | — | Worker repository |
+| [release-ops-audit.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-audit.repo.ts) | — | Audit repository |
+| [release-ops-batch.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-batch.repo.ts) | — | Batch operations repository |
+| [release-ops-report.repo.ts](file:///d:/Python/SinoMedia/dashboard/lib/repositories/release-ops-report.repo.ts) | — | Report (ASO metrics) repository |
+| [ReleaseOpsNavTabs.tsx](file:///d:/Python/SinoMedia/dashboard/components/dashboard/release-ops/ReleaseOpsNavTabs.tsx) | 58 | 9-tab navigation |
+| [reports/page.tsx](file:///d:/Python/SinoMedia/dashboard/app/(main)/dash/release-ops/reports/page.tsx) | 552 | Store Performance Report 20 Cột |
+| [releases/page.tsx](file:///d:/Python/SinoMedia/dashboard/app/(main)/dash/release-ops/releases/page.tsx) | 515 | Releases + Promote/Halt |
+| [apps/page.tsx](file:///d:/Python/SinoMedia/dashboard/app/(main)/dash/release-ops/apps/page.tsx) | 320 | App Registry + Onboard |
+| [sdk/page.tsx](file:///d:/Python/SinoMedia/dashboard/app/(main)/dash/release-ops/sdk/page.tsx) | 150 | Target SDK Compliance |
+| [types/release-ops.ts](file:///d:/Python/SinoMedia/dashboard/types/release-ops.ts) | — | Domain types |
