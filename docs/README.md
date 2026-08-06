@@ -64,6 +64,7 @@ Cấu trúc thư mục tài liệu của dự án được tổ chức theo mô 
 
 ### 🤝 TẦNG 7: NGHIỆM THU & BÀN GIAO (`07-acceptance-handover/`)
 - `07-acceptance-handover/uat-signoff/`: UAT Scripts & Biên bản nghiệm thu
+  - 📄 [`UAT_PULL_PLAY_STORE_APK_SUCCESS.md`](file:///d:/super-tools/app-relay/docs/07-acceptance-handover/uat-signoff/UAT_PULL_PLAY_STORE_APK_SUCCESS.md): Báo cáo nghiệm thu UAT pull APK & listing từ Play Store (Thành công 100%)
 - `07-acceptance-handover/user-guides/`: Hướng dẫn sử dụng cho End-User / vận hành
 - `07-acceptance-handover/handover/`: Biên bản bàn giao tài sản dự án
 
