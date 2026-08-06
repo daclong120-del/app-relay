@@ -1,92 +1,93 @@
-// AppRelay Dashboard Main Management Page (Lutech UI Redesign)
+// AppRelay Dashboard Main Management Page (API-Client Powered, Lutech UI Redesign)
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ReleaseOpsNavTabs } from '@/components/dashboard/release-ops/ReleaseOpsNavTabs';
 import { AppRelayForm } from '@/components/dashboard/release-ops/app-relay/AppRelayForm';
 import { AppRelayJobTable } from '@/components/dashboard/release-ops/app-relay/AppRelayJobTable';
 import { MetricCard } from '@/components/dashboard/ui/MetricCard';
+import { AppRelayApiClient, AppRelayOverview } from '@/lib/api-client/app-relay-api-client';
 import { ReleaseOpsJobItem } from '@/types/release-ops';
 
 export default function AppRelayDashboardPage() {
-  const [jobs, setJobs] = useState<ReleaseOpsJobItem[]>([
-    {
-      id: 'job-98a1b2c3',
-      jobType: 'pull_apk',
-      status: 'succeeded',
-      priority: 1,
-      attemptCount: 1,
-      maxAttempts: 3,
-      payload: {
-        schemaVersion: 1,
-        playUrl: 'https://play.google.com/store/apps/details?id=com.sinomedia.app',
-        packageId: 'com.sinomedia.app',
-        locale: 'en',
-      },
-      createdAt: new Date(Date.now() - 3600000).toISOString(),
-      updatedAt: new Date(Date.now() - 1800000).toISOString(),
-    },
-    {
-      id: 'job-45d6e7f8',
-      jobType: 'pull_apk',
-      status: 'running',
-      priority: 2,
-      attemptCount: 1,
-      maxAttempts: 3,
-      payload: {
-        schemaVersion: 1,
-        playUrl: 'https://play.google.com/store/apps/details?id=com.sinomedia.crawler',
-        packageId: 'com.sinomedia.crawler',
-        locale: 'vi',
-      },
-      createdAt: new Date(Date.now() - 600000).toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-  ]);
+  const [jobs, setJobs] = useState<ReleaseOpsJobItem[]>([]);
+  const [overview, setOverview] = useState<AppRelayOverview>({
+    totalJobs: 0,
+    activeJobs: 0,
+    queuedJobs: 0,
+    succeededJobs: 0,
+    failedJobs: 0,
+    onlineWorkers: 0,
+  });
+  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const client = new AppRelayApiClient();
+
+  const fetchDashboardData = async () => {
+    try {
+      const [overviewRes, jobsRes] = await Promise.all([
+        client.getOverview().catch(() => null),
+        client.getJobs({ pageSize: 50 }).catch(() => null),
+      ]);
+
+      if (overviewRes) setOverview(overviewRes);
+      if (jobsRes && jobsRes.data) setJobs(jobsRes.data);
+    } catch (err: any) {
+      setError(err.message || 'Failed to connect to AppRelay Public API');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
 
   const handleCreateJob = async (data: { playUrl: string; locale: string }) => {
     setSubmitting(true);
+    setError(null);
     try {
-      // Simulate creating job
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      const u = new URL(data.playUrl);
-      const pkg = u.searchParams.get('id') || 'com.example.app';
+      const res = await client.createJob({
+        playUrl: data.playUrl,
+        locale: data.locale,
+      });
 
-      const newJob: ReleaseOpsJobItem = {
-        id: `job-${Math.random().toString(36).substring(2, 10)}`,
-        jobType: 'pull_apk',
-        status: 'queued',
-        priority: 1,
-        attemptCount: 0,
-        maxAttempts: 3,
-        payload: {
-          schemaVersion: 1,
-          playUrl: data.playUrl,
-          packageId: pkg,
-          locale: data.locale,
-        },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      setJobs((prev) => [newJob, ...prev]);
+      if (res && res.job) {
+        setJobs((prev) => [res.job, ...prev.filter((j) => j.id !== res.job.id)]);
+        fetchDashboardData();
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to submit APK acquisition job');
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleCancelJob = async (jobId: string) => {
-    setJobs((prev) =>
-      prev.map((j) => (j.id === jobId ? { ...j, status: 'cancelled' as const } : j))
-    );
+    try {
+      await client.cancelJob(jobId);
+      setJobs((prev) =>
+        prev.map((j) => (j.id === jobId ? { ...j, status: 'cancelled' as const } : j))
+      );
+      fetchDashboardData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to cancel job');
+    }
   };
 
   const handleRetryJob = async (jobId: string) => {
-    setJobs((prev) =>
-      prev.map((j) => (j.id === jobId ? { ...j, status: 'queued' as const, attemptCount: j.attemptCount + 1 } : j))
-    );
+    try {
+      await client.retryJob(jobId);
+      setJobs((prev) =>
+        prev.map((j) => (j.id === jobId ? { ...j, status: 'queued' as const } : j))
+      );
+      fetchDashboardData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to retry job');
+    }
   };
 
   return (
@@ -114,12 +115,22 @@ export default function AppRelayDashboardPage() {
       {/* Release Ops Top Navigation */}
       <ReleaseOpsNavTabs activeTab="app-relay" />
 
+      {/* Error Alert */}
+      {error && (
+        <div className="p-4 bg-red-950/50 border border-red-800/50 text-red-300 rounded-lg text-sm flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-xs font-mono underline hover:text-red-100">
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Summary Health Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           title="Worker Fleet"
-          value="4 / 4 Live"
-          subtitle="All ADB workers healthy"
+          value={`${overview.onlineWorkers} Live`}
+          subtitle="Registered ADB worker nodes"
           provenance="worker_live"
           tone="emerald"
           icon={
@@ -130,7 +141,7 @@ export default function AppRelayDashboardPage() {
         />
         <MetricCard
           title="Queue Depth"
-          value={jobs.filter((j) => ['queued', 'claimed'].includes(j.status)).length}
+          value={overview.queuedJobs}
           subtitle="Pending acquisition jobs"
           provenance="supabase_realtime"
           tone="amber"
@@ -142,7 +153,7 @@ export default function AppRelayDashboardPage() {
         />
         <MetricCard
           title="Running Jobs"
-          value={jobs.filter((j) => j.status === 'running').length}
+          value={overview.activeJobs}
           subtitle="Active ADB extractions"
           provenance="worker_live"
           tone="blue"
@@ -153,9 +164,9 @@ export default function AppRelayDashboardPage() {
           }
         />
         <MetricCard
-          title="Success Rate (24h)"
-          value="98.4%"
-          subtitle="124 completed, 2 retried"
+          title="Total Succeeded"
+          value={overview.succeededJobs}
+          subtitle={`${overview.failedJobs} failed`}
           provenance="artifact_storage"
           tone="purple"
           icon={

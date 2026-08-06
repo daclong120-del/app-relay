@@ -367,7 +367,7 @@ export function generateOpenApiDocument() {
         name: 'Proprietary',
       },
     },
-    servers: [{ url: '/api/release-ops/app-relay/v1', description: 'Same-origin AppRelay frontend API' }],
+    servers: [{ url: '/api/app-relay/v1', description: 'Same-origin AppRelay frontend API for dual dashboards' }],
   });
 }
 

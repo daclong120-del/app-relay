@@ -7,6 +7,8 @@ const rootDir = path.resolve(__dirname, '..');
 
 const testSuites = [
   { name: 'Phase 4: Worker Gateway Contract Tests', path: 'dashboard/lib/release-ops-worker-api/__tests__/gateway.test.ts' },
+  { name: 'Public API Contract Tests', path: 'dashboard/tests/public-api.test.ts' },
+  { name: 'Master Dashboard Integration Tests', path: 'dashboard/tests/master-integration.test.ts' },
   { name: 'Phase 5: AppRelay Worker Foundation Tests', path: 'workers/app-relay-worker/tests/fake-worker.test.ts' },
   { name: 'Phase 6: Google Play Listing Pipeline Tests', path: 'workers/app-relay-worker/tests/play-listing.test.ts' },
   { name: 'Phase 7: Android & APK Extraction Tests', path: 'workers/app-relay-worker/tests/android-pipeline.test.ts' },

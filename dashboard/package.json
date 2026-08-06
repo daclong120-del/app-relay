@@ -8,6 +8,7 @@
     "start": "next start",
     "type-check": "tsc --noEmit",
     "openapi:generate": "npx tsx scripts/generate-openapi.ts",
+    "openapi:verify": "npx tsx scripts/generate-openapi.ts",
     "tree:generate": "npx tsx ../scripts/generate-tree.ts"
   },
   "dependencies": {
