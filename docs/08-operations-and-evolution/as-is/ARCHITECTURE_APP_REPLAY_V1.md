@@ -980,12 +980,13 @@ The browser uses Server Actions and Realtime, consistent with the existing dashb
 /api/release-ops/worker/v1/*
 ```
 
-### 10.3 Required endpoints
+### 10.3 Required Worker Gateway endpoints (v1.3.0)
 
 | Method | Path | Scope | Purpose |
 | --- | --- | --- | --- |
 | `POST` | `/workers/register` | `release_ops:worker:register` | Register identity and capabilities |
-| `POST` | `/workers/heartbeat` | `release_ops:worker:heartbeat` | Worker/device health |
+| `POST` | `/workers/heartbeat` | `release_ops:worker:heartbeat` | Worker daemon health and slot capacity |
+| `POST` | `/workers/device-status` | `release_ops:worker:heartbeat` | Report Headless AVD status, KVM status, disk space, and keyguard state |
 | `POST` | `/jobs/claim` | `release_ops:job:claim` | Atomic compatible-job claim |
 | `POST` | `/jobs/:id/start` | `release_ops:job:heartbeat` | Move claimed job to running |
 | `POST` | `/jobs/:id/heartbeat` | `release_ops:job:heartbeat` | Extend lease and receive cancel flag |
