@@ -111,15 +111,27 @@ export function parsePlayListingHtml(html: string, packageId: string): PlayListi
     }
   }
 
+  // Helper to ensure high-resolution screenshot URL (Spec Line 63: =w1080-h1920 if possible)
+  function toHighResScreenshotUrl(rawUrl: string): string {
+    if (!rawUrl) return rawUrl;
+    if (rawUrl.includes('=w') || rawUrl.includes('=s') || rawUrl.includes('=h')) {
+      return rawUrl.replace(/=(?:w\d+|h\d+|s\d+)[^"']*/, '=w1080-h1920');
+    }
+    return `${rawUrl}=w1080-h1920`;
+  }
+
   // 8. Screenshot URLs
   const screenshotUrls: string[] = [];
   const screenshotRegex = /<img[^>]+(?:alt=["'][^"']*screenshot[^"']*["']|data-src=["'][^"']+screenshot|itemprop=["']screenshot["'])[^>]+src=["']([^"']+)["']/gi;
   let match: RegExpExecArray | null;
 
   while ((match = screenshotRegex.exec(html)) !== null) {
-    const url = match[1];
-    if (url && !screenshotUrls.includes(url)) {
-      screenshotUrls.push(url);
+    const rawUrl = match[1];
+    if (rawUrl) {
+      const url = toHighResScreenshotUrl(rawUrl);
+      if (!screenshotUrls.includes(url)) {
+        screenshotUrls.push(url);
+      }
     }
   }
 
@@ -127,9 +139,12 @@ export function parsePlayListingHtml(html: string, packageId: string): PlayListi
   if (screenshotUrls.length === 0) {
     const genericImgRegex = /src=["'](https:\/\/play-lh\.googleusercontent\.com\/[^"']+)["']/gi;
     while ((match = genericImgRegex.exec(html)) !== null) {
-      const url = match[1];
-      if (url !== iconUrl && !screenshotUrls.includes(url)) {
-        screenshotUrls.push(url);
+      const rawUrl = match[1];
+      if (rawUrl && rawUrl !== iconUrl) {
+        const url = toHighResScreenshotUrl(rawUrl);
+        if (!screenshotUrls.includes(url)) {
+          screenshotUrls.push(url);
+        }
       }
     }
   }

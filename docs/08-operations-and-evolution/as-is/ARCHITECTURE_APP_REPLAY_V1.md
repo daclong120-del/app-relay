@@ -139,19 +139,22 @@ The design intentionally does **not** introduce a second database, a second publ
 
 ### 2.2 Proposed APK worker stack
 
-| Concern | Proposed choice | Reason |
+| Concern | Choice | Reason |
 | --- | --- | --- |
 | Runtime | TypeScript on Node.js LTS | Matches dashboard language and fits process/HTTP orchestration |
-| Packaging | Separate workspace package/service: `workers/apk-pull-worker` | Clear execution boundary without a new web app |
-| HTTP | Undici/native fetch | Poll gateway, fetch listing, upload object |
+| Packaging | Workspace package: `workers/app-relay-worker` | Clear execution boundary without a new web app |
+| Process Management | PM2 Daemon Manager (`ecosystem.config.js`) | 24/7 background process lifecycle, auto-restart, and log management on VPS |
+| HTTP | Undici / native fetch | Poll gateway, fetch listing, upload object |
 | Validation | Zod | Shared DTO and environment validation |
 | Process control | `node:child_process.spawn` with argument arrays | Avoid shell interpolation around ADB/package values |
-| Listing parser | Isolated adapter using a maintained HTML parser | Google Play markup is volatile |
-| UI parsing | UIAutomator XML parser | Exact Install/Accept/Continue state detection |
-| Archive/hash | Streaming ZIP and SHA-256 | Avoid loading APKs into memory |
+| Emulator Headless | `-no-window -no-audio -no-boot-anim -gpu off` | Runs background emulator without GUI on Linux VPS (KVM) or Windows |
+| Listing parser | Standalone engine (`play-scrape-oneoff.ts` / `PlayListingClient`) | Google Play markup HTML parsing, metadata JSON, markdown, icon & screenshots |
+| UI parsing | Multi-language UIAutomator XML parser (`play-ui-automator.ts`) | Exact Install/Cài đặt/Get/Accept/Continue state detection |
+| CLI Automation | Standalone CLI scripts (`pull-from-play.ts`, `test-headless-pull.ts`) | Direct command-line extraction & headless auto-spawn test harness |
+| Archive/hash | Streaming ZIP and SHA-256 (`PULL_MANIFEST.txt`) | Avoid loading APKs into memory, track checksums |
 | Logging | Structured JSON, compatible with existing operations stack | Job/worker/stage correlation |
-| Device tools | ADB, Android SDK Emulator or physical Android device | Required by pull pipeline |
-| Worker deployment | Dockerized Node worker with host-managed ADB/AVD, or native service fallback | Vercel cannot run device automation |
+| Device tools | ADB, Android SDK Emulator (`chpay` AVD) | Required by pull pipeline |
+| Worker deployment | PM2 Daemon or Dockerized Node worker with host-managed ADB/AVD | Vercel cannot run device automation |
 
 ### 2.3 Explicitly not introduced
 
@@ -242,28 +245,28 @@ The worker is a separate deployable backend, but its contract and shared DTOs be
 
 ## 4. System Architecture
 
-### 4.1 Complete integration architecture
+### 4.1 Complete integration architecture (7-Layer Comprehensive Diagram)
 
-This is the authoritative target diagram for APK acquisition inside SinoMedia.
+This is the authoritative system architecture diagram for APK acquisition, Play Store scraping, and background worker execution inside SinoMedia AppRelay.
 
 ```mermaid
 flowchart TB
-    subgraph ClientLayer["Layer 1 — Browser"]
+    subgraph ClientLayer["Layer 1 — Client & Admin UI (Browser)"]
         Admin(("Admin operator"))
-        ApkPage["Release Ops APK Pull page"]
-        JobPage["Job detail and artifact page"]
-        Admin --> ApkPage
-        Admin --> JobPage
+        ApkPage["Release Ops APK Pull page (/dash/release-ops/apk-pull)"]
+        JobPage["Job timeline & artifact download page (/dash/release-ops/apk-pull/[jobId])"]
+        Admin -->|"submits Play Store URL"| ApkPage
+        Admin -->|"monitors progress & downloads ZIP"| JobPage
     end
 
-    subgraph VercelLayer["Layer 2 — Vercel control plane"]
-        Middleware["Next.js middleware"]
-        Actions["Server Actions"]
-        Service["Release Ops service"]
-        Repos["Release Ops repositories"]
-        Gateway["Worker Gateway API"]
-        TokenGuard["Token and scope guard"]
-        Cron["Artifact cleanup route"]
+    subgraph VercelLayer["Layer 2 — Vercel Control Plane (Next.js 16)"]
+        Middleware["Next.js middleware (Session & Route Guard)"]
+        Actions["Server Actions (release-ops.actions.ts: verifyCSRF & requireAdmin)"]
+        Service["Release Ops service (release-ops.service.ts)"]
+        Repos["Release Ops repositories (Job, Worker, Event, Artifact repos)"]
+        Gateway["Worker Gateway API (/api/release-ops/worker/v1)"]
+        TokenGuard["Token & Scope Guard (SHA-256 Token Verification)"]
+        Cron["Artifact cleanup & retention cron (/api/release-ops/cleanup)"]
 
         Middleware --> Actions
         Actions --> Service
@@ -271,63 +274,95 @@ flowchart TB
         Gateway --> TokenGuard
     end
 
-    subgraph SupabaseLayer["Layer 3 — Supabase data plane"]
-        Auth["Supabase Auth"]
-        DB[("Release Ops tables and RPCs")]
-        Realtime["Supabase Realtime"]
-        Storage[("Private APK artifact bucket")]
+    subgraph SupabaseLayer["Layer 3 — Supabase Data Plane (PostgreSQL & Storage)"]
+        Auth["Supabase Auth (Identity Provider)"]
+        DB[("Supabase PostgreSQL DB (jobs, workers, events, artifacts, audits)")]
+        RPCs["Supabase RPCs (claim_release_ops_job, heartbeat, event_append)"]
+        Realtime["Supabase Realtime (Publication broadcast)"]
+        Storage[("Private Storage Bucket (release-ops/artifacts/*.zip)")]
+
+        DB --> RPCs
+        DB -.->|"publication events"| Realtime
     end
 
-    subgraph WorkerLayer["Layer 4 — Detached APK backend"]
-        Poller["Job poller and lease manager"]
-        Pipeline["APK acquisition pipeline"]
-        Uploader["Direct artifact uploader"]
-        Temp["Temporary workspace"]
-        Poller --> Pipeline
-        Pipeline --> Temp
+    subgraph WorkerLayer["Layer 4 — Detached APK Worker (Linux VPS Daemon / PM2)"]
+        PM2["PM2 Daemon Manager (ecosystem.config.js)"]
+        Engine["WorkerEngine Runtime (worker-engine.ts)"]
+        SlotMgr["DeviceSlotManager (slot-manager.ts)"]
+        GatewayClient["GatewayClient (gateway-client.ts)"]
+        Pipeline["APK Acquisition Pipeline (apk-acquisition-pipeline.ts)"]
+        Uploader["Direct Artifact Uploader (uploader.ts)"]
+        TempDisk["Temporary Workspace (workspace/job_<id>/)"]
+
+        PM2 --> Engine
+        Engine --> SlotMgr
+        Engine --> GatewayClient
+        Engine --> Pipeline
+        Pipeline --> TempDisk
         Pipeline --> Uploader
     end
 
-    subgraph DeviceLayer["Layer 5 — Android execution"]
-        HostADB["Host ADB server"]
-        Device["AVD chpay or physical device"]
-        PlayApp["Google Play application"]
-        Installed["Installed base and splits"]
-        HostADB --> Device
-        Device --> PlayApp
-        Device --> Installed
+    subgraph CliLayer["Layer 5 — Standalone Manual CLI & Testing Suite"]
+        PullCli["Manual Pull CLI (scripts/pull-from-play.ts)"]
+        HeadlessTest["Headless Test Script (scripts/test-headless-pull.ts)"]
+        OneOffScraper["One-Off Listing Engine (tests/helpers/play-scrape-oneoff.ts)"]
+        EnvDiag["Android Env Diagnostics (tests/check-android-env.ts)"]
+        MasterTest["Master Test Matrix (scripts/run-all-tests.ts)"]
+
+        PullCli --> OneOffScraper
+        HeadlessTest --> OneOffScraper
     end
 
-    subgraph ExternalLayer["Layer 6 — External source"]
-        PlayWeb["Google Play web listing"]
-        PlayMedia["Icons and screenshots"]
+    subgraph DeviceLayer["Layer 6 — Android Execution Plane (ADB & Headless AVD)"]
+        HostADB["Host ADB Server (tools/android-sdk/platform-tools/adb.exe)"]
+        Launcher["Emulator Launcher (emulator-launcher.ts: ensureEmulatorRunning)"]
+        Emulator["Android Emulator AVD chpay (Headless: -no-window -no-audio -no-boot-anim -gpu off)"]
+        ScreenUnlock["Screen Wake & Unlock (KEYCODE_WAKEUP + 82 + swipe)"]
+        PlayApp["Google Play Store Application (com.android.vending)"]
+        UiAutomator["UIAutomator Parser (play-ui-automator.ts: Multi-language regex)"]
+        InstalledPkg["Installed Base & Split APKs (pm path, dumpsys package, device-dir.listing)"]
+
+        Launcher -->|"spawns ngầm"| Emulator
+        HostADB --> Emulator
+        Emulator --> ScreenUnlock
+        Emulator --> PlayApp
+        PlayApp --> UiAutomator
+        Emulator --> InstalledPkg
     end
 
-    ApkPage -->|"submit via HTTPS"| Middleware
-    JobPage -->|"read and download request"| Middleware
-    Middleware -->|"session"| Auth
-    Repos -->|"read and write"| DB
-    DB -.->|"publication changes"| Realtime
-    Realtime -.->|"live job and event updates"| JobPage
+    subgraph ExternalLayer["Layer 7 — External Sources"]
+        PlayWeb["Google Play Web Listing (play.google.com/store/apps/details?id=...)"]
+        PlayMedia["CDN Media (Icon og:image & high-res Screenshots)"]
+        PlayWeb --> PlayMedia
+    end
 
-    Poller -->|"outbound claim and heartbeat"| Gateway
-    TokenGuard -->|"service role operations"| DB
-    Pipeline -->|"progress and completion"| Gateway
+    %% Inter-layer Connections
+    ApkPage -->|"HTTPS POST"| Middleware
+    JobPage -->|"HTTPS GET"| Middleware
+    Middleware -->|"validate session"| Auth
+    Repos -->|"SQL / RPC"| DB
+    Realtime -.->|"websocket live updates"| JobPage
+
+    Engine -->|"outbound claim & heartbeat"| Gateway
+    TokenGuard -->|"service-role DB queries"| DB
+    Pipeline -->|"log events & status"| Gateway
+    OneOffScraper -->|"desktop HTTP GET"| PlayWeb
     Pipeline -->|"listing fetch"| PlayWeb
-    PlayWeb --> PlayMedia
     Pipeline -->|"ADB commands"| HostADB
-    Uploader -->|"signed direct upload"| Storage
-    Gateway -->|"issue upload contract and verify result"| Storage
-    Cron -->|"expire metadata"| DB
-    Cron -->|"delete expired object"| Storage
+    HeadlessTest -->|"ADB commands"| HostADB
+    Uploader -->|"PUT signed upload"| Storage
+    Gateway -->|"issue upload contract & verify object"| Storage
+    Cron -->|"expire metadata & delete object"| DB
+    Cron -->|"delete expired storage ZIP"| Storage
 
+    %% Styling Classes
     classDef existing fill:#172033,stroke:#75a7ff,color:#fff
     classDef proposed fill:#1d2a1a,stroke:#4ad98a,color:#fff
     classDef external fill:#2a1d33,stroke:#e0aaff,color:#fff
     classDef data fill:#2a2a1a,stroke:#ffd166,color:#fff
 
     class Middleware,Actions,Service,Repos,Auth,DB existing
-    class Gateway,TokenGuard,Cron,Poller,Pipeline,Uploader,Temp,HostADB,Device,PlayApp,Installed proposed
+    class Gateway,TokenGuard,Cron,PM2,Engine,SlotMgr,GatewayClient,Pipeline,Uploader,TempDisk,PullCli,HeadlessTest,OneOffScraper,EnvDiag,MasterTest,HostADB,Launcher,Emulator,ScreenUnlock,PlayApp,UiAutomator,InstalledPkg proposed
     class PlayWeb,PlayMedia external
     class Realtime,Storage data
 ```
@@ -348,19 +383,24 @@ flowchart LR
         API --> Events
     end
 
-    subgraph Execution["Execution plane — device host"]
-        Worker["APK worker"]
-        ADB["ADB and emulator"]
-        Local["Temporary disk"]
+    subgraph Execution["Execution plane — Linux VPS / Device Host"]
+        PM2Daemon["PM2 Daemon Manager"]
+        Worker["APK Worker Engine"]
+        HeadlessEmu["Headless Emulator (-no-window)"]
+        ADB["ADB Server & UIAutomator"]
+        Local["Temporary Disk Workspace"]
+
+        PM2Daemon --> Worker
+        Worker --> HeadlessEmu
         Worker --> ADB
         Worker --> Local
     end
 
     subgraph ArtifactPlane["Artifact plane — Supabase Storage"]
-        Bucket[("Private bucket")]
+        Bucket[("Private Storage Bucket")]
     end
 
-    Worker -->|"outbound HTTPS only"| API
+    Worker -->|"outbound HTTPS polling"| API
     Worker -->|"direct signed upload"| Bucket
     UI -->|"authorized signed download"| Bucket
 ```
@@ -372,8 +412,41 @@ Key boundary rules:
 3. Vercel does not receive APK/ZIP bytes during upload or download.
 4. Supabase Database is the only job-state source of truth.
 5. Worker-local disk is temporary and never the durable artifact store.
+6. The Android Emulator runs completely headlessly (`-no-window`) in background without GUI.
 
-### 4.3 Dashboard-to-worker end-to-end flow
+### 4.3 Headless Emulator Lifecycle & Background Auto-Spawn Sequence
+
+```mermaid
+sequenceDiagram
+    participant Worker as "Worker Engine"
+    participant Launcher as "Emulator Launcher"
+    participant ADB as "Host ADB Server"
+    participant Emu as "Android Emulator (AVD chpay)"
+    participant Screen as "Device Keyguard / Screen"
+
+    Worker->>Launcher: ensureEmulatorRunning({ headless: true, serial: "emulator-5554" })
+    Launcher->>ADB: getDevices()
+    
+    alt Device is ALREADY online and sys.boot_completed === '1'
+        ADB-->>Launcher: Return emulator-5554 (device)
+        Launcher->>Screen: wakeAndUnlockDevice (KEYCODE_WAKEUP + 82 + swipe unlock)
+        Launcher-->>Worker: Return { booted: true, wasLaunched: false }
+    else Device is NOT online or not booted
+        Launcher->>Emu: spawn("emulator", ["-avd", "chpay", "-no-window", "-no-audio", "-no-boot-anim", "-gpu", "off"], { detached: true })
+        
+        loop Poll sys.boot_completed every 2s (timeout 180s)
+            Launcher->>ADB: getDeviceProperty("emulator-5554", "sys.boot_completed")
+            ADB-->>Launcher: "0" or "offline" -> sleep(2000)
+            ADB-->>Launcher: "1" (Boot Complete!)
+        end
+
+        Launcher->>Screen: wakeAndUnlockDevice (KEYCODE_WAKEUP + 82 + swipe unlock)
+        Launcher->>ADB: setScreenOffTimeout(1800000)
+        Launcher-->>Worker: Return { booted: true, wasLaunched: true }
+    end
+```
+
+### 4.4 Dashboard-to-worker end-to-end flow
 
 ```mermaid
 sequenceDiagram
@@ -385,7 +458,7 @@ sequenceDiagram
     participant RT as "Realtime"
     participant Gateway as "Worker Gateway"
     participant Worker as "APK worker"
-    participant Device as "ADB device"
+    participant Device as "ADB device (Headless Emu)"
     participant Storage as "Private Storage"
 
     Admin->>Page: Submit Google Play URL
@@ -404,7 +477,8 @@ sequenceDiagram
     end
 
     Worker->>Gateway: Running event and heartbeat
-    Worker->>Device: Install from Play and pull all splits
+    Worker->>Device: Auto-boot Headless Emulator (-no-window) & unlock screen
+    Worker->>Device: Install from Play Store UI and pull base + split APKs
     Worker->>Gateway: Stage and progress events
     Gateway->>DB: Append events and extend lease
     DB-->>RT: Publish progress
@@ -423,29 +497,29 @@ sequenceDiagram
     Worker->>Worker: Delete temporary files
 ```
 
-### 4.4 Worker internal architecture
+### 4.5 Worker internal architecture
 
 ```mermaid
 flowchart TB
-    Runtime["Runtime coordinator"] --> GatewayClient["Gateway client"]
-    Runtime --> Lease["Lease heartbeat and cancellation"]
-    Runtime --> Dispatcher["Capability dispatcher"]
+    Runtime["WorkerEngine Runtime Coordinator"] --> GatewayClient["Gateway Client"]
+    Runtime --> Lease["Lease Heartbeat & Cancellation"]
+    Runtime --> SlotMgr["DeviceSlotManager"]
+    Runtime --> Dispatcher["Capability Dispatcher"]
 
-    Dispatcher --> PullHandler["pull_apk handler"]
-    PullHandler --> URL["URL and package validator"]
-    PullHandler --> Listing["Play listing adapter"]
-    PullHandler --> DeviceManager["Device manager"]
-    PullHandler --> Extractor["APK extractor"]
-    PullHandler --> Validator["Artifact validator"]
-    PullHandler --> Packager["Manifest and ZIP"]
-    PullHandler --> Upload["Signed upload adapter"]
-    PullHandler --> Cleanup["Cleanup compensator"]
+    Dispatcher --> PullHandler["runApkAcquisitionPipeline"]
+    PullHandler --> ListingClient["PlayListingClient (HTML/Icon/Screenshots)"]
+    PullHandler --> DevicePreflight["runDevicePreflight"]
+    PullHandler --> PlayUI["parsePlayUiAutomatorXml (Multi-language regex)"]
+    PullHandler --> Extractor["pullApksFromDevice (Safe ADB Pull)"]
+    PullHandler --> Validator["validateApkFiles (SHA-256 Checksum)"]
+    PullHandler --> Packager["generatePullManifestText & createZipArchiveFile"]
+    PullHandler --> Upload["uploadArtifactToStorage (Direct PUT)"]
+    PullHandler --> Cleanup["safeDeviceCleanup & safeWorkspaceCleanup"]
 
-    DeviceManager --> Emulator["Emulator lifecycle"]
-    DeviceManager --> PlayUI["Play UI automation"]
-    Extractor --> ADB["Safe ADB adapter"]
+    DevicePreflight --> Launcher["ensureEmulatorRunning (-no-window)"]
+    Extractor --> ADB["Safe ADB Adapter"]
 
-    Listing --> Workspace["Per-job workspace"]
+    ListingClient --> Workspace["Per-Job Workspace (workspace/job_<id>/)"]
     Extractor --> Workspace
     Validator --> Workspace
     Packager --> Workspace
@@ -453,7 +527,40 @@ flowchart TB
     Cleanup --> Workspace
 ```
 
-### 4.5 Artifact upload and download architecture
+### 4.6 Artifact Package & SHA-256 Storage Layout
+
+```mermaid
+flowchart LR
+    subgraph LocalArtifact["Local Target Directory (work/apks/<packageId>/)"]
+        BaseAPK["base.apk (Core APK bytecode & Manifest)"]
+        Split1["split_config.arm64_v8a.apk (CPU Native Split)"]
+        Split2["split_config.xxhdpi.apk (Screen Density Split)"]
+        Manifest["PULL_MANIFEST.txt (Metadata & SHA-256 Hashes)"]
+        PkgInfo["package-info.txt (Dumpsys package output)"]
+        DeviceListing["device-dir.listing (ls -la /data/app/)"]
+        
+        subgraph ListingFolder["playstore/"]
+            Desc["description.md (Markdown text)"]
+            Json["listing.json (Structured DTO)"]
+            Icon["icon.png (App Icon)"]
+            Page["page.html (Raw HTML)"]
+            Screenshots["screenshots/screenshot_XX.png (Full Screenshots)"]
+        end
+    end
+
+    subgraph ZipBundle["Target ZIP Archive (<packageId>-v100.zip)"]
+        ZipFiles["ZIP Archive Payload (Manifest, Package-info, Listing, APKs)"]
+    end
+
+    subgraph StorageBucket["Supabase Storage Bucket (release-ops/artifacts/)"]
+        CloudZip["<job_id>.zip (Private Signed Object)"]
+    end
+
+    LocalArtifact --> ZipBundle
+    ZipBundle --> CloudZip
+```
+
+### 4.7 Artifact upload and download architecture
 
 ```mermaid
 sequenceDiagram
@@ -480,7 +587,7 @@ sequenceDiagram
     Admin->>Storage: Download directly
 ```
 
-### 4.6 Generic Release Ops job lifecycle with APK stages
+### 4.8 Generic Release Ops job lifecycle with APK stages
 
 The generic `status` remains compatible with the master Release Ops model. APK-specific progress belongs in append-only events.
 
@@ -490,10 +597,10 @@ stateDiagram-v2
     queued --> claimed : capability-aware claim
     claimed --> running : worker starts
     running --> running : scrape listing
-    running --> running : prepare device
-    running --> running : install application
+    running --> running : prepare device (auto-spawn -no-window emulator)
+    running --> running : install application (UI Automator)
     running --> running : pull all APK splits
-    running --> running : validate and package
+    running --> running : validate and package (SHA-256)
     running --> running : upload artifact
     running --> succeeded : verified completion
     running --> failed : classified failure
@@ -873,12 +980,13 @@ The browser uses Server Actions and Realtime, consistent with the existing dashb
 /api/release-ops/worker/v1/*
 ```
 
-### 10.3 Required endpoints
+### 10.3 Required Worker Gateway endpoints (v1.3.0)
 
 | Method | Path | Scope | Purpose |
 | --- | --- | --- | --- |
 | `POST` | `/workers/register` | `release_ops:worker:register` | Register identity and capabilities |
-| `POST` | `/workers/heartbeat` | `release_ops:worker:heartbeat` | Worker/device health |
+| `POST` | `/workers/heartbeat` | `release_ops:worker:heartbeat` | Worker daemon health and slot capacity |
+| `POST` | `/workers/device-status` | `release_ops:worker:heartbeat` | Report Headless AVD status, KVM status, disk space, and keyguard state |
 | `POST` | `/jobs/claim` | `release_ops:job:claim` | Atomic compatible-job claim |
 | `POST` | `/jobs/:id/start` | `release_ops:job:heartbeat` | Move claimed job to running |
 | `POST` | `/jobs/:id/heartbeat` | `release_ops:job:heartbeat` | Extend lease and receive cancel flag |

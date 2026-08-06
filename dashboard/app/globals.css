@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Import Lutech UI Design System Tokens */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Brand & Operational Colors */
+  --color-brand-orange: #f97316;
+  --color-brand-orange-deep: #ea580c;
+  --color-primary-blue: #3b82f6;
+  --color-primary-blue-deep: #2563eb;
+  --color-primary-blue-soft: #60a5fa;
+
+  /* Semantic Status Colors */
+  --color-status-emerald: #10b981;
+  --color-status-amber: #f59e0b;
+  --color-status-rose: #f43f5e;
+  --color-status-purple: #8b5cf6;
+
+  /* Surfaces - Dark Mode (default) */
+  --color-canvas: #090d16;
+  --color-canvas-card: #0f172a;
+  --color-hairline: #1e293b;
+  --color-hairline-strong: #334155;
+  --color-ink: #f8fafc;
+  --color-ink-secondary: #e2e8f0;
+  --color-ink-mute: #94a3b8;
+
+  /* Border Radii */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* Elevation Shadows */
+  --elevation-0: none;
+  --elevation-1: 0 1px 3px rgba(15, 23, 42, 0.05);
+  --elevation-2: 0 10px 15px -3px rgba(15, 23, 42, 0.1);
+  --elevation-3: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+}
+
+/* Global Base Styles */
+body {
+  font-family: 'Inter', 'Outfit', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Utility Classes */
+.font-mono-data {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
+.tactile-active {
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), background-color 150ms ease, border-color 150ms ease;
+}
+
+.tactile-active:active {
+  transform: scale(0.97);
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Indeterminate loading bar animation */
+@keyframes slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}

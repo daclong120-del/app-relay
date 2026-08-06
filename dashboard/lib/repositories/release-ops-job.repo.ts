@@ -101,6 +101,18 @@ export class ReleaseOpsJobRepository {
     return !error;
   }
 
+  async clearIdempotencyKey(id: string): Promise<boolean> {
+    const { error } = await this.db
+      .from('release_ops_jobs')
+      .update({
+        idempotency_key: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id);
+
+    return !error;
+  }
+
   private mapRow(row: any): ReleaseOpsJobItem {
     return {
       id: row.id,

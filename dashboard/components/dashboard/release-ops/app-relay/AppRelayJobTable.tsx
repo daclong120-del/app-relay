@@ -111,7 +111,7 @@ export const AppRelayJobTable: React.FC<AppRelayJobTableProps> = ({
                 <th className="py-3 px-4 font-semibold">Status</th>
                 <th className="py-3 px-4 font-semibold">Attempts</th>
                 <th className="py-3 px-4 font-semibold">Created At</th>
-                <th className="py-3 px-4 font-semibold">Provenance</th>
+                <th className="py-3 px-4 font-semibold">Updated</th>
                 <th className="py-3 px-4 font-semibold text-right">Actions</th>
               </tr>
             </thead>
@@ -140,8 +140,8 @@ export const AppRelayJobTable: React.FC<AppRelayJobTableProps> = ({
                     <td className="py-3 px-4 font-mono text-slate-400">
                       {new Date(job.createdAt).toLocaleString()}
                     </td>
-                    <td className="py-3 px-4">
-                      <ProvenanceBadge source="supabase_realtime" />
+                    <td className="py-3 px-4 font-mono text-slate-500 text-[11px]">
+                      {job.updatedAt ? new Date(job.updatedAt).toLocaleTimeString() : '—'}
                     </td>
                     <td className="py-3 px-4 text-right space-x-2">
                       <Button variant="outline" size="sm" onClick={() => onSelectJob?.(job.id)}>

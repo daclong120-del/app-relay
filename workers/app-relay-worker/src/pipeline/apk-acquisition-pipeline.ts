@@ -52,7 +52,15 @@ export async function runApkAcquisitionPipeline(
     if (isCancelled()) throw new Error('JOB_CANCELLED: Job cancelled during preflight.');
     await client.appendJobEvent(job.id, workerId, 'preparing_device', `Performing preflight checks on ADB device ${config.adbDeviceSerial}`, 'info', 25);
 
-    const preflightRes = await runDevicePreflight(config.adbDeviceSerial, adb);
+    const preflightRes = await runDevicePreflight({
+      serial: config.adbDeviceSerial,
+      avdName: config.avdName,
+      emulatorPath: config.emulatorPath,
+      bootTimeoutMs: config.bootTimeoutMs,
+      adbClient: adb,
+      isCancelled,
+    });
+
 
     // Check Pre-install State
     const existingPaths = await adb.checkPackagePath(config.adbDeviceSerial, packageId);
@@ -63,6 +71,11 @@ export async function runApkAcquisitionPipeline(
     await client.appendJobEvent(job.id, workerId, 'installing_app', `Opening Play Store and verifying package ${packageId}`, 'info', 40);
 
     if (!wasInstalledBefore) {
+      try {
+        await adb.forceStopPackage(config.adbDeviceSerial, 'com.android.vending');
+      } catch {
+        // Ignore force-stop errors if not running
+      }
       await adb.openMarketUrl(config.adbDeviceSerial, packageId);
       // Wait 3 seconds for UI load
       await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -75,9 +88,10 @@ export async function runApkAcquisitionPipeline(
         if (uiTarget.state === 'READY_TO_INSTALL' && uiTarget.x && uiTarget.y) {
           await adb.tapCoordinates(config.adbDeviceSerial, uiTarget.x, uiTarget.y);
           jobInstalledApp = true;
-          // Poll for installation (up to 30s)
+          // Poll for installation (up to ~6 minutes: 120 polls x 3s)
           let installed = false;
-          for (let i = 0; i < 10; i++) {
+          const maxPolls = Math.ceil((config.installTimeoutMs || 360000) / 3000);
+          for (let i = 0; i < maxPolls; i++) {
             if (isCancelled()) throw new Error('JOB_CANCELLED: Job cancelled during install poll.');
             await new Promise((resolve) => setTimeout(resolve, 3000));
             const paths = await adb.checkPackagePath(config.adbDeviceSerial, packageId);
@@ -115,6 +129,7 @@ export async function runApkAcquisitionPipeline(
 
     const manifestText = generatePullManifestText({
       packageId,
+      playUrl,
       versionName: '1.0.0',
       versionCode: 100,
       deviceProfile: preflightRes.deviceProfile as unknown as Record<string, unknown>,

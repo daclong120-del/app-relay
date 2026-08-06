@@ -232,7 +232,7 @@ async function runTests() {
   // Test 2: GET /health
   {
     const req = new NextRequest('http://localhost:3000/api/app-relay/v1/health', { method: 'GET' });
-    const res = await GET(req, { params: { path: ['health'] } });
+    const res = await GET(req, { params: Promise.resolve({ path: ['health'] }) });
     const body = await res.json();
     console.assert(res.status === 200, 'GET /health should return 200');
     console.assert(body.status === 'ok', 'Health status should be ok');
@@ -251,7 +251,7 @@ async function runTests() {
         includeListing: true,
       }),
     });
-    const res = await POST(req, { params: { path: ['jobs'] } });
+    const res = await POST(req, { params: Promise.resolve({ path: ['jobs'] }) });
     const body = await res.json();
     if (res.status !== 201) {
       console.error('Test 3 Status:', res.status, 'Body:', JSON.stringify(body));
@@ -265,7 +265,7 @@ async function runTests() {
   // Test 4: GET /jobs
   {
     const req = new NextRequest('http://localhost:3000/api/app-relay/v1/jobs', { method: 'GET' });
-    const res = await GET(req, { params: { path: ['jobs'] } });
+    const res = await GET(req, { params: Promise.resolve({ path: ['jobs'] }) });
     const body = await res.json();
     console.assert(res.status === 200, 'GET /jobs should return 200');
     console.assert(body.data.length >= 1, 'Should return at least 1 job');
@@ -275,7 +275,7 @@ async function runTests() {
   // Test 5: GET /workers
   {
     const req = new NextRequest('http://localhost:3000/api/app-relay/v1/workers', { method: 'GET' });
-    const res = await GET(req, { params: { path: ['workers'] } });
+    const res = await GET(req, { params: Promise.resolve({ path: ['workers'] }) });
     const body = await res.json();
     console.assert(res.status === 200, 'GET /workers should return 200');
     console.assert(body.data.length === 1, 'Should return 1 worker');
@@ -289,7 +289,7 @@ async function runTests() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ playUrl: 'https://invalid-url.com' }),
     });
-    const res = await POST(req, { params: { path: ['jobs'] } });
+    const res = await POST(req, { params: Promise.resolve({ path: ['jobs'] }) });
     const body = await res.json();
     console.assert(res.status === 400, 'Invalid URL should return 400');
     console.assert(body.error.code === 'INVALID_PLAY_URL', 'Code should be INVALID_PLAY_URL');

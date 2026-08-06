@@ -2,13 +2,15 @@
 
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { ReleaseOpsNavTabs } from '@/components/dashboard/release-ops/ReleaseOpsNavTabs';
 import { AppRelayForm } from '@/components/dashboard/release-ops/app-relay/AppRelayForm';
 import { AppRelayJobTable } from '@/components/dashboard/release-ops/app-relay/AppRelayJobTable';
 import { MetricCard } from '@/components/dashboard/ui/MetricCard';
 import { AppRelayApiClient, AppRelayOverview } from '@/lib/api-client/app-relay-api-client';
 import { ReleaseOpsJobItem } from '@/types/release-ops';
+
+const POLL_INTERVAL_MS = 8000;
 
 export default function AppRelayDashboardPage() {
   const [jobs, setJobs] = useState<ReleaseOpsJobItem[]>([]);
@@ -23,10 +25,11 @@ export default function AppRelayDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
   const client = new AppRelayApiClient();
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     try {
       const [overviewRes, jobsRes] = await Promise.all([
         client.getOverview().catch(() => null),
@@ -35,16 +38,24 @@ export default function AppRelayDashboardPage() {
 
       if (overviewRes) setOverview(overviewRes);
       if (jobsRes && jobsRes.data) setJobs(jobsRes.data);
+      setLastRefreshed(new Date());
     } catch (err: any) {
       setError(err.message || 'Failed to connect to AppRelay Public API');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
+  // Initial fetch + auto-polling (M3 fix)
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+
+    const interval = setInterval(() => {
+      fetchDashboardData();
+    }, POLL_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [fetchDashboardData]);
 
   const handleCreateJob = async (data: { playUrl: string; locale: string }) => {
     setSubmitting(true);
@@ -102,14 +113,23 @@ export default function AppRelayDashboardPage() {
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-100 flex items-center gap-3">
             <span>AppRelay Control Plane</span>
-            <span className="px-2.5 py-0.5 bg-orange-500/10 border border-orange-500/30 text-orange-400 rounded-full text-xs font-mono">
-              v1.0.0
-            </span>
           </h1>
           <p className="text-xs text-slate-400 mt-1">
             SinoMedia Release Operations — Google Play Store APK & Split Artifact Acquisition
+            {lastRefreshed && (
+              <span className="ml-2 text-slate-600">
+                • Updated {lastRefreshed.toLocaleTimeString()}
+              </span>
+            )}
           </p>
         </div>
+
+        <button
+          onClick={() => fetchDashboardData()}
+          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-mono rounded text-slate-300 transition border border-slate-700"
+        >
+          {loading ? 'Refreshing...' : '↻ Refresh'}
+        </button>
       </header>
 
       {/* Release Ops Top Navigation */}
@@ -125,13 +145,12 @@ export default function AppRelayDashboardPage() {
         </div>
       )}
 
-      {/* Summary Health Strip */}
+      {/* Summary Health Strip — H4 fix: removed misleading provenance labels */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           title="Worker Fleet"
           value={`${overview.onlineWorkers} Live`}
           subtitle="Registered ADB worker nodes"
-          provenance="worker_live"
           tone="emerald"
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -143,7 +162,6 @@ export default function AppRelayDashboardPage() {
           title="Queue Depth"
           value={overview.queuedJobs}
           subtitle="Pending acquisition jobs"
-          provenance="supabase_realtime"
           tone="amber"
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -155,10 +173,10 @@ export default function AppRelayDashboardPage() {
           title="Running Jobs"
           value={overview.activeJobs}
           subtitle="Active ADB extractions"
-          provenance="worker_live"
           tone="blue"
           icon={
-            <svg className="w-5 h-5 animate-pulse" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            // M2 fix: Only animate pulse when there are active jobs
+            <svg className={`w-5 h-5 ${overview.activeJobs > 0 ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
           }
@@ -167,7 +185,6 @@ export default function AppRelayDashboardPage() {
           title="Total Succeeded"
           value={overview.succeededJobs}
           subtitle={`${overview.failedJobs} failed`}
-          provenance="artifact_storage"
           tone="purple"
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

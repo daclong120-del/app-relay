@@ -1,6 +1,7 @@
 // Device Preflight Inspector & Readiness Validator
 
 import { AdbClient, AdbDeviceProperties } from './adb-client';
+import { ensureEmulatorRunning, EnsureEmulatorOptions } from './emulator-launcher';
 
 export interface AppRelayDeviceProfile {
   sdk: number;
@@ -9,19 +10,40 @@ export interface AppRelayDeviceProfile {
   locale: string;
 }
 
+export interface PreflightOptions extends EnsureEmulatorOptions {
+  serial?: string;
+  adbClient?: AdbClient;
+}
+
 export interface PreflightResult {
   ready: boolean;
   serial: string;
   deviceProfile: AppRelayDeviceProfile;
   playStoreInstalled: boolean;
+  wasLaunched?: boolean;
   warnings?: string[];
 }
 
 export async function runDevicePreflight(
-  serial: string,
-  adbClient: AdbClient
+  serialOrOptions: string | PreflightOptions,
+  adbClientParam?: AdbClient
 ): Promise<PreflightResult> {
-  const devices = await adbClient.getDevices();
+  const options: PreflightOptions =
+    typeof serialOrOptions === 'string'
+      ? { serial: serialOrOptions, adbClient: adbClientParam }
+      : serialOrOptions;
+
+  const serial = options.serial || process.env.ADB_DEVICE_SERIAL || 'emulator-5554';
+  const adb = options.adbClient || adbClientParam || new AdbClient();
+
+  // Stage 2: Ensure emulator is booted and ready
+  const bootRes = await ensureEmulatorRunning({
+    ...options,
+    serial,
+    adbClient: adb,
+  });
+
+  const devices = await adb.getDevices();
   const targetDevice = devices.find((d) => d.serial === serial);
 
   if (!targetDevice) {
@@ -32,19 +54,14 @@ export async function runDevicePreflight(
     throw new Error(`DEVICE_UNAVAILABLE: Configured ADB device "${serial}" state is "${targetDevice.state}". Must be "device".`);
   }
 
-  const props: AdbDeviceProperties = await adbClient.getDeviceProperties(serial);
+  const props: AdbDeviceProperties = await adb.getDeviceProperties(serial);
 
   if (!props.bootCompleted) {
     throw new Error(`EMULATOR_BOOT_TIMEOUT: Device "${serial}" sys.boot_completed is not 1.`);
   }
 
-  // Wake and unlock screen
-  try {
-    await adbClient.wakeAndUnlockScreen(serial);
-  } catch {}
-
   // Check Google Play Store package presence
-  const playPaths = await adbClient.checkPackagePath(serial, 'com.android.vending');
+  const playPaths = await adb.checkPackagePath(serial, 'com.android.vending');
   const playStoreInstalled = playPaths.length > 0;
 
   if (!playStoreInstalled) {
@@ -61,5 +78,7 @@ export async function runDevicePreflight(
       locale: props.locale,
     },
     playStoreInstalled: true,
+    wasLaunched: bootRes.wasLaunched,
   };
 }
+

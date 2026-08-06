@@ -126,6 +126,28 @@ export class AdbClient {
     await this.execAdb(serial, ['shell', 'input', 'keyevent', '82']);  // MENU/UNLOCK
   }
 
+  async swipe(serial: string, x1: number, y1: number, x2: number, y2: number, durationMs = 300): Promise<void> {
+    await this.execAdb(serial, [
+      'shell',
+      'input',
+      'swipe',
+      String(Math.floor(x1)),
+      String(Math.floor(y1)),
+      String(Math.floor(x2)),
+      String(Math.floor(y2)),
+      String(Math.floor(durationMs)),
+    ]);
+  }
+
+  async setScreenOffTimeout(serial: string, timeoutMs = 1800000): Promise<void> {
+    await this.execAdb(serial, ['shell', 'settings', 'put', 'system', 'screen_off_timeout', String(timeoutMs)]);
+  }
+
+  async lsLaRemoteDir(serial: string, remoteDirPath: string): Promise<string> {
+    const res = await this.execAdb(serial, ['shell', 'ls', '-la', remoteDirPath]);
+    return res.stdout;
+  }
+
   async forceStopPackage(serial: string, packageId: string): Promise<void> {
     await this.execAdb(serial, ['shell', 'am', 'force-stop', packageId]);
   }
@@ -140,3 +162,4 @@ export class AdbClient {
     return res.stdout;
   }
 }
+

@@ -8,7 +8,7 @@ export default function AppRelayLoading() {
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 max-w-[1400px] mx-auto space-y-6">
       {/* Top Animated Progress Bar */}
       <div className="fixed top-0 left-0 right-0 h-1 bg-slate-900 z-50 overflow-hidden">
-        <div className="h-full bg-gradient-to-r from-orange-500 via-blue-500 to-emerald-500 animate-pulse w-full" />
+        <div className="h-full bg-gradient-to-r from-orange-500 via-blue-500 to-emerald-500 w-1/3 animate-[slide_1.5s_ease-in-out_infinite]" />
       </div>
 
       {/* Header Skeleton */}

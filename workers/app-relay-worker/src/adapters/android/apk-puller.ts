@@ -66,10 +66,16 @@ export async function pullApksFromDevice(
     await fs.writeFile(packageInfoPath, `Package ID: ${packageId}\nExtracted At: ${new Date().toISOString()}\n`, 'utf-8');
   }
 
-  // Write device-dir.listing
+  // Write device-dir.listing (ls -la of remote app dir)
   const deviceDirListingPath = join(targetDir, 'device-dir.listing');
-  const listingContent = remotePaths.map((p) => `package:${p}`).join('\n');
-  await fs.writeFile(deviceDirListingPath, listingContent, 'utf-8');
+  try {
+    const parentDir = dirname(remotePaths[0]);
+    const lsOut = await adbClient.lsLaRemoteDir(serial, parentDir);
+    await fs.writeFile(deviceDirListingPath, lsOut.trim() ? lsOut : remotePaths.map((p) => `package:${p}`).join('\n'), 'utf-8');
+  } catch {
+    const listingContent = remotePaths.map((p) => `package:${p}`).join('\n');
+    await fs.writeFile(deviceDirListingPath, listingContent, 'utf-8');
+  }
 
   return {
     baseApkPath,

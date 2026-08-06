@@ -40,7 +40,7 @@ export const AppRelayTimeline: React.FC<AppRelayTimelineProps> = ({ events }) =>
         <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider">
           Execution Timeline & Event Trace
         </h3>
-        <ProvenanceBadge source="supabase_realtime" />
+        <ProvenanceBadge source="supabase_realtime" customLabel="API Polling" />
       </div>
 
       <div className="space-y-4 relative before:absolute before:left-4 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-800">
