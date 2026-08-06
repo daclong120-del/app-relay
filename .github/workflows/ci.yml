@@ -27,10 +27,11 @@ jobs:
       - name: Execute Unified Test Matrix
         run: npx tsx scripts/run-all-tests.ts
 
-  build-container:
-    name: Build AppRelay Worker Docker Image
+  build-and-push-worker:
+    name: Build & Push Worker Image to Docker Hub
     runs-on: ubuntu-latest
     needs: test-and-verify
+    if: github.event_name == 'push'
 
     steps:
       - name: Checkout Code
@@ -39,10 +40,38 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Worker Image
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & Push Worker Image
         uses: docker/build-push-action@v5
         with:
           context: ./workers/app-relay-worker
           file: ./workers/app-relay-worker/Dockerfile
-          push: false
-          tags: app-relay-worker:latest
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/app-relay-worker:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/app-relay-worker:${{ github.sha }}
+
+  deploy-to-vps:
+    name: Deploy Worker to VPS
+    runs-on: ubuntu-latest
+    needs: build-and-push-worker
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd ${{ secrets.VPS_DEPLOY_PATH || '/root/app-relay' }}
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker image prune -f
+            echo "✅ Worker deployed successfully"

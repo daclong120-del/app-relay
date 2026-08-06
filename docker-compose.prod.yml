@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  app-relay-worker:
+    image: daclong120/app-relay-worker:latest
+    container_name: app-relay-worker
+    restart: unless-stopped
+    env_file:
+      - .env

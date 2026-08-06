@@ -2,19 +2,42 @@
 
 Tài liệu hướng dẫn Test nhanh các REST API của **AppRelay** dành cho Admin & Integration Tester.
 
-> **Base URL**: `https://<YOUR_SERVER_HOST>/api/app-relay/v1`  
-> **Auth Header**: `Authorization: Bearer <YOUR_SUPABASE_JWT_TOKEN>`  
-> **Content-Type**: `application/json`
+> 🌐 **Base URL (VPS Deployed)**: `http://79.108.216.178:3001/api/app-relay/v1`  
+> 💻 **Base URL (Local Dev)**: `http://localhost:3000/api/app-relay/v1`  
+> 🔑 **Auth Header**: `Authorization: Bearer dev-worker-token-secret-key`  
+> 📄 **Content-Type**: `application/json`
 
 ---
 
-## 🔑 1. Khởi Tạo Header Mẫu (cURL Quick-Setup)
+## 🔑 1. Cấu Hình Host & Key Chạy Nhanh (cURL Quick-Setup)
 
-Mọi Request (trừ `/health`) cần truyền Bearer Token:
+Đối tác / Tester copy 2 dòng sau paste vào Terminal trước khi chạy các câu lệnh cURL bên dưới:
 
 ```bash
-export BASE_URL="https://<YOUR_SERVER_HOST>/api/app-relay/v1"
-export AUTH_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." # Token từ Supabase Auth
+# 1. Host VPS chính thức đang chạy
+export BASE_URL="http://79.108.216.178:3001/api/app-relay/v1"
+
+# 2. Secret Key / Bearer Token mặc định
+export AUTH_TOKEN="dev-worker-token-secret-key"
+```
+
+---
+
+## ⚡ 2. Lệnh cURL Dùng Ngay Cho Đối Tác (Copy-Paste Trực Tiếp)
+
+Đối tác có thể copy chính xác 100% câu lệnh cURL dưới đây để chạy trực tiếp trên VPS của bạn:
+
+### Example: Kéo App Hàng Loạt (POST `/jobs/batch`)
+```bash
+curl -X POST "http://79.108.216.178:3001/api/app-relay/v1/jobs/batch" \
+  -H "Authorization: Bearer dev-worker-token-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "urls": [
+      "https://play.google.com/store/apps/details?id=com.facemoji.lite",
+      "https://play.google.com/store/apps/details?id=com.simejikeyboard"
+    ]
+  }'
 ```
 
 ---

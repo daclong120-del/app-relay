@@ -435,9 +435,11 @@ export async function GET(
       const search = searchParams.get('search') || undefined;
       const offset = (page - 1) * pageSize;
 
+      const statusParam = searchParams.get('status') as any;
       const repo = new ReleaseOpsJobRepository(db);
       const jobs = await repo.findAll({
         jobType: 'pull_apk',
+        status: statusParam || undefined,
         limit: pageSize,
         offset,
       });
@@ -550,7 +552,13 @@ export async function POST(
     // 1. POST /jobs
     if (pathStr === 'jobs') {
       const job = await service.createApkPullJob(body);
-      return NextResponse.json({ job, requestId }, { status: 201, headers: cors });
+      const data = {
+        jobId: job.id,
+        packageId: (job.payload as any)?.packageId || job.appId || '',
+        status: job.status,
+        createdAt: job.createdAt,
+      };
+      return NextResponse.json({ data, job, requestId }, { status: 201, headers: cors });
     }
 
     // 1b. POST /jobs/batch
@@ -589,7 +597,7 @@ export async function POST(
       const jobId = pathSegments[1];
       const expiresIn = body.expiresInSeconds || 900;
       const handoff = await service.getArtifactDownloadUrl(jobId, expiresIn);
-      return NextResponse.json({ ...handoff, requestId }, { status: 200, headers: cors });
+      return NextResponse.json({ data: { jobId, ...handoff }, ...handoff, requestId }, { status: 200, headers: cors });
     }
 
     return createErrorResponse(404, 'NOT_FOUND', `Public API endpoint NOT_FOUND: /${pathStr}`, requestId, false, cors);
