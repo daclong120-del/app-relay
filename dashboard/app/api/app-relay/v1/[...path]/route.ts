@@ -9,8 +9,71 @@ import { ReleaseOpsWorkerRepository } from '../../../../../lib/repositories/rele
 import { AppRelayService } from '../../../../../lib/services/app-relay.service';
 
 class FallbackDbClient {
-  private jobs = new Map<string, any>();
-  private workers = new Map<string, any>();
+  public jobs = new Map<string, any>();
+  public workers = new Map<string, any>();
+  public artifacts = new Map<string, any>();
+  public events: any[] = [];
+
+  constructor() {
+    const succeededJobId = 'job_succeeded_001';
+    this.jobs.set(succeededJobId, {
+      id: succeededJobId,
+      job_type: 'pull_apk',
+      status: 'succeeded',
+      priority: 10,
+      release_id: null,
+      app_id: null,
+      worker_id: 'worker-uuid-101',
+      lease_until: null,
+      heartbeat_at: new Date().toISOString(),
+      attempt_count: 1,
+      max_attempts: 3,
+      idempotency_key: 'idem_key_001',
+      payload: { packageId: 'com.facemoji.lite', playUrl: 'https://play.google.com/store/apps/details?id=com.facemoji.lite' },
+      result: { artifactId: 'art_001' },
+      error_message: null,
+      created_by: 'user-001',
+      created_at: new Date(Date.now() - 3600000).toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    const failedJobId = 'job_failed_001';
+    this.jobs.set(failedJobId, {
+      id: failedJobId,
+      job_type: 'pull_apk',
+      status: 'failed',
+      priority: 10,
+      release_id: null,
+      app_id: null,
+      worker_id: 'worker-uuid-101',
+      lease_until: null,
+      heartbeat_at: new Date().toISOString(),
+      attempt_count: 1,
+      max_attempts: 3,
+      idempotency_key: 'idem_key_002',
+      payload: { packageId: 'com.facemoji.lite', playUrl: 'https://play.google.com/store/apps/details?id=com.facemoji.lite' },
+      result: {},
+      error_message: 'Network error during pull',
+      created_by: 'user-001',
+      created_at: new Date(Date.now() - 7200000).toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    const artId = 'art_001';
+    this.artifacts.set(artId, {
+      id: artId,
+      job_id: succeededJobId,
+      file_name: 'com.facemoji.lite-v1.0.apk',
+      checksum: 'sha256:abc123def456',
+      storage_path: 'artifacts/com.facemoji.lite-v1.0.apk',
+      artifact_type: 'apk',
+      content_type: 'application/vnd.android.package-archive',
+      size_bytes: 25480000,
+      expires_at: new Date(Date.now() + 86400000).toISOString(),
+      deleted_at: null,
+      created_at: new Date().toISOString(),
+    });
+  }
 
   from(tableName: string) {
     const self = this;
@@ -110,11 +173,65 @@ class FallbackDbClient {
       };
     }
 
+    if (tableName === 'release_ops_job_events') {
+      return {
+        select() {
+          return {
+            eq(field: string, value: any) {
+              const matched = self.events.filter((e) => e.job_id === value);
+              return {
+                order() {
+                  return Promise.resolve({ data: matched, error: null });
+                },
+              };
+            },
+          };
+        },
+      };
+    }
+
+    if (tableName === 'release_ops_artifacts') {
+      return {
+        select() {
+          return {
+            eq(field: string, value: any) {
+              const matched = Array.from(self.artifacts.values()).find((a) =>
+                (field === 'job_id' ? a.job_id === value && !a.deleted_at : a.id === value && !a.deleted_at)
+              );
+              const chain = {
+                is() { return chain; },
+                order() { return chain; },
+                limit() { return chain; },
+                maybeSingle() { return Promise.resolve({ data: matched || null, error: null }); },
+                single() { return Promise.resolve({ data: matched || null, error: matched ? null : new Error('Not found') }); },
+              };
+              return chain;
+            },
+          };
+        },
+        update(updateData: any) {
+          return {
+            eq(field: string, value: any) {
+              const artifact = self.artifacts.get(value);
+              if (artifact) {
+                Object.assign(artifact, updateData);
+              }
+              return Promise.resolve({ error: null });
+            },
+          };
+        },
+      };
+    }
+
     return {
       select() {
         return {
           eq() {
-            return Promise.resolve({ data: [], error: null });
+            return {
+              maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+              single() { return Promise.resolve({ data: null, error: null }); },
+              order() { return Promise.resolve({ data: [], error: null }); },
+            };
           },
           order() {
             return Promise.resolve({ data: [], error: null });
@@ -127,7 +244,16 @@ class FallbackDbClient {
     };
   }
 
-  rpc() {
+  rpc(methodName: string, args: any) {
+    if (methodName === 'release_ops_cancel_job') {
+      const jobId = args.p_job_id;
+      const job = this.jobs.get(jobId);
+      if (job && ['queued', 'claimed', 'running'].includes(job.status)) {
+        job.status = 'cancelled';
+        return Promise.resolve({ data: true, error: null });
+      }
+      return Promise.resolve({ data: false, error: null });
+    }
     return Promise.resolve({ data: true, error: null });
   }
 }
@@ -258,7 +384,7 @@ export async function GET(
         if (pkgId && !appMap.has(pkgId)) {
           appMap.set(pkgId, {
             packageId: pkgId,
-            lastPulledAt: j.created_at,
+            lastPulledAt: j.createdAt,
             status: j.status,
             playUrl: (j.payload as any)?.playUrl,
           });
