@@ -194,9 +194,10 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  const pathSegments = params.path || [];
+  const resolvedParams = await params;
+  const pathSegments = resolvedParams.path || [];
   const pathStr = pathSegments.join('/');
   const db = getDbClient();
   const cors = getCorsHeaders(request);
@@ -230,7 +231,7 @@ export async function GET(
       const queuedJobs = jobs.filter((j) => j.status === 'queued').length;
       const succeededJobs = jobs.filter((j) => j.status === 'succeeded').length;
       const failedJobs = jobs.filter((j) => ['failed', 'dead_letter'].includes(j.status)).length;
-      const onlineWorkers = workers.filter((w) => w.status === 'online').length;
+      const onlineWorkers = workers.filter((w) => ['online', 'active'].includes(w.status)).length;
 
       return NextResponse.json(
         {
@@ -340,9 +341,10 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  const pathSegments = params.path || [];
+  const resolvedParams = await params;
+  const pathSegments = resolvedParams.path || [];
   const pathStr = pathSegments.join('/');
   const db = getDbClient();
   const cors = getCorsHeaders(request);
@@ -406,9 +408,10 @@ export async function POST(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  const pathSegments = params.path || [];
+  const resolvedParams = await params;
+  const pathSegments = resolvedParams.path || [];
   const db = getDbClient();
   const cors = getCorsHeaders(request);
   const requestId = generateRequestId();

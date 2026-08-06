@@ -23,9 +23,10 @@ function getDbClient(): any {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: { path: string[] } | Promise<{ path: string[] }> }
 ) {
-  const pathSegments = params.path || [];
+  const resolvedParams = await params;
+  const pathSegments = resolvedParams.path || [];
 
   let body: any = {};
   try {

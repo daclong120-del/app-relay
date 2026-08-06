@@ -2,7 +2,8 @@
 
 'use client';
 
-import React, { useState, use } from 'react';
+import React, { useState } from 'react';
+import { useParams } from 'next/navigation';
 import { ReleaseOpsNavTabs } from '@/components/dashboard/release-ops/ReleaseOpsNavTabs';
 import { AppRelayTimeline } from '@/components/dashboard/release-ops/app-relay/AppRelayTimeline';
 import { AppRelayArtifactCard } from '@/components/dashboard/release-ops/app-relay/AppRelayArtifactCard';
@@ -11,13 +12,8 @@ import { Button } from '@/components/dashboard/ui/Button';
 import { StatusBadge } from '@/components/dashboard/ui/StatusBadge';
 import { AppRelayJobEvent, AppRelayArtifact } from '@/types/release-ops';
 
-export default function AppRelayJobDetailPage({
-  params,
-}: {
-  params: { jobId: string } | Promise<{ jobId: string }>;
-}) {
-  const resolvedParams = use ? use(Promise.resolve(params)) : (params as { jobId: string });
-  const jobId = resolvedParams.jobId;
+export default function AppRelayJobDetailPage() {
+  const { jobId } = useParams<{ jobId: string }>();
   const [artifact, setArtifact] = useState<AppRelayArtifact | null>({
     id: 'art-88273619',
     jobId: jobId,

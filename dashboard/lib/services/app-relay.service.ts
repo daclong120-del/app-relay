@@ -86,6 +86,12 @@ export class AppRelayService {
       return existing;
     }
 
+    // If a previous job with same idempotency key exists in terminal state,
+    // clear its key so we can create a fresh job
+    if (existing && ['cancelled', 'failed', 'succeeded', 'dead_letter'].includes(existing.status)) {
+      await jobRepo.clearIdempotencyKey(existing.id);
+    }
+
     const payload: PullApkJobPayloadV1 = {
       schemaVersion: 1,
       playUrl,
