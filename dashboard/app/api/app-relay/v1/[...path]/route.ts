@@ -247,6 +247,54 @@ export async function GET(
       );
     }
 
+    // 2b. GET /apps (App Catalog Listing)
+    if (pathStr === 'apps') {
+      const repo = new ReleaseOpsJobRepository(db);
+      const jobs = await repo.findAll({ limit: 500 });
+      const appMap = new Map<string, any>();
+
+      for (const j of jobs) {
+        const pkgId = (j.payload as any)?.packageId;
+        if (pkgId && !appMap.has(pkgId)) {
+          appMap.set(pkgId, {
+            packageId: pkgId,
+            lastPulledAt: j.created_at,
+            status: j.status,
+            playUrl: (j.payload as any)?.playUrl,
+          });
+        }
+      }
+
+      const apps = Array.from(appMap.values());
+      return NextResponse.json(
+        {
+          data: apps,
+          totalItems: apps.length,
+          requestId,
+        },
+        { status: 200, headers: cors }
+      );
+    }
+
+    // 2c. GET /workers/fleet-status
+    if (pathStr === 'workers/fleet-status') {
+      const workerRepo = new ReleaseOpsWorkerRepository(db);
+      const workers = await workerRepo.findAll();
+      const onlineWorkers = workers.filter((w) => ['online', 'active'].includes(w.status));
+
+      return NextResponse.json(
+        {
+          totalWorkers: workers.length,
+          onlineWorkersCount: onlineWorkers.length,
+          idleWorkersCount: onlineWorkers.filter((w) => w.status === 'online').length,
+          activeWorkersCount: onlineWorkers.filter((w) => w.status === 'active').length,
+          workers: onlineWorkers,
+          requestId,
+        },
+        { status: 200, headers: cors }
+      );
+    }
+
     // 3. GET /jobs
     if (pathStr === 'jobs') {
       const searchParams = request.nextUrl.searchParams;
@@ -371,6 +419,21 @@ export async function POST(
     if (pathStr === 'jobs') {
       const job = await service.createApkPullJob(body);
       return NextResponse.json({ job, requestId }, { status: 201, headers: cors });
+    }
+
+    // 1b. POST /jobs/batch
+    if (pathStr === 'jobs/batch') {
+      const urls: string[] = Array.isArray(body.urls) ? body.urls : [];
+      const createdJobs = [];
+      for (const url of urls) {
+        try {
+          const job = await service.createApkPullJob({ ...body, playUrl: url });
+          createdJobs.push(job);
+        } catch (err: any) {
+          createdJobs.push({ playUrl: url, error: err.message });
+        }
+      }
+      return NextResponse.json({ data: createdJobs, totalSubmitted: urls.length, requestId }, { status: 207, headers: cors });
     }
 
     // 2. POST /jobs/:jobId/cancel
