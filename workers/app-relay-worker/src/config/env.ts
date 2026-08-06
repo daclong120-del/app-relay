@@ -17,6 +17,7 @@ export interface WorkerConfig {
   workerVersion: string;
   capability: string;
   headless: boolean;
+  installTimeoutMs: number;
 }
 
 export function loadWorkerConfig(): WorkerConfig {
@@ -29,6 +30,7 @@ export function loadWorkerConfig(): WorkerConfig {
   const emulatorPath = process.env.EMULATOR_PATH || 'emulator';
   const avdName = process.env.AVD_NAME || 'chpay';
   const bootTimeoutMs = parseInt(process.env.EMULATOR_BOOT_TIMEOUT_MS || '180000', 10);
+  const installTimeoutMs = parseInt(process.env.INSTALL_TIMEOUT_MS || '360000', 10);
   const maxParallelJobs = Math.max(1, parseInt(process.env.MAX_PARALLEL_JOBS || '1', 10));
   const pollIntervalMs = Math.max(1000, parseInt(process.env.POLL_INTERVAL_MS || '5000', 10));
   const workerHeartbeatIntervalMs = Math.max(5000, parseInt(process.env.WORKER_HEARTBEAT_INTERVAL_MS || '30000', 10));
@@ -45,6 +47,7 @@ export function loadWorkerConfig(): WorkerConfig {
     emulatorPath,
     avdName,
     bootTimeoutMs,
+    installTimeoutMs,
     maxParallelJobs,
     pollIntervalMs,
     workerHeartbeatIntervalMs,
