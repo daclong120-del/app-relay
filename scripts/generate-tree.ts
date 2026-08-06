@@ -156,15 +156,17 @@ if (isMainModule || isTsxExecution) {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '-o' || arg === '--output') {
-      outputFile = args[++i];
+      outputFile = args[++i] ?? 'STRUCTURE.md';
     } else if (arg === '--stdout') {
       outputFile = null;
     } else if (arg === '-d' || arg === '--dir' || arg === '--path') {
-      targetDir = args[++i];
+      targetDir = args[++i] ?? '.';
     } else if (arg === '--max-depth') {
-      options.maxDepth = parseInt(args[++i], 10);
+      const nextArg = args[++i];
+      if (nextArg) options.maxDepth = parseInt(nextArg, 10);
     } else if (arg === '--exclude') {
-      options.exclude = args[++i];
+      const nextArg = args[++i];
+      if (nextArg) options.exclude = nextArg;
     } else if (!arg.startsWith('-')) {
       targetDir = arg;
     }

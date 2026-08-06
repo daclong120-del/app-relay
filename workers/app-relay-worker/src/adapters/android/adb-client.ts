@@ -25,7 +25,7 @@ export class AdbClient {
     return safeExec(this.adbPath, fullArgs, { timeoutMs });
   }
 
-  async getDevices(): PromiseAdbDeviceInfo[] {
+  async getDevices(): Promise<AdbDeviceInfo[]> {
     const res = await safeExec(this.adbPath, ['devices']);
     if (res.exitCode !== 0) {
       throw new Error(`ADB devices command failed: ${res.stderr}`);

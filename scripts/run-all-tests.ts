@@ -1,6 +1,9 @@
 // Master Test Runner Executing All Project Test Suites (Phase 11)
 
 import { execSync } from 'child_process';
+import * as path from 'path';
+
+const rootDir = path.resolve(__dirname, '..');
 
 const testSuites = [
   { name: 'Phase 4: Worker Gateway Contract Tests', path: 'dashboard/lib/release-ops-worker-api/__tests__/gateway.test.ts' },
@@ -25,7 +28,8 @@ async function main() {
   for (const suite of testSuites) {
     console.log(`\n▶ Running ${suite.name}...`);
     try {
-      execSync(`npx tsx ${suite.path}`, { stdio: 'inherit' });
+      const absolutePath = path.resolve(rootDir, suite.path);
+      execSync(`npx tsx "${absolutePath}"`, { cwd: rootDir, stdio: 'inherit' });
       totalPassedSuites++;
     } catch {
       console.error(`❌ Suite failed: ${suite.name}`);
