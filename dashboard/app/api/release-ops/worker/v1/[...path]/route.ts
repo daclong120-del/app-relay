@@ -23,7 +23,7 @@ function getDbClient(): any {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { path: string[] } | Promise<{ path: string[] }> }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
   const resolvedParams = await params;
   const pathSegments = resolvedParams.path || [];

@@ -86,8 +86,15 @@ export function parsePlayUiAutomatorXml(xml: string): UiClickTarget {
     const label = text || desc;
     if (!label) continue;
 
-    // Check Install Button
-    if (/^Install$/i.test(label) || /^Get$/i.test(label)) {
+    // Check Install Button & Dialog Accept/Continue Buttons
+    if (
+      /^Install$/i.test(label) ||
+      /^Get$/i.test(label) ||
+      /^Accept$/i.test(label) ||
+      /^Continue$/i.test(label) ||
+      /^Agree$/i.test(label) ||
+      /^OK$/i.test(label)
+    ) {
       const center = parseBoundsCenter(bounds);
       if (center) {
         installTarget = {

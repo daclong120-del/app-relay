@@ -8,6 +8,7 @@ export interface PackageManifestOptions {
   packageId: string;
   versionName: string;
   versionCode: number;
+  playUrl?: string;
   deviceProfile?: Record<string, unknown>;
   validationResult: ArtifactValidationResult;
   listingDir?: string;
@@ -16,28 +17,29 @@ export interface PackageManifestOptions {
 export function generatePullManifestText(options: PackageManifestOptions): string {
   const lines: string[] = [];
 
+  const playUrl = options.playUrl || `https://play.google.com/store/apps/details?id=${options.packageId}`;
+  const pulledAt = new Date().toISOString();
+
+  // Spec-compliant key-value pairs (Spec Lines 93-101)
+  lines.push(`package=${options.packageId}`);
+  lines.push(`Package ID:     ${options.packageId}`);
+  lines.push(`play_url=${playUrl}`);
+  lines.push(`pulled_at=${pulledAt}`);
+  lines.push(`version_name=${options.versionName}`);
+  lines.push(`version_code=${options.versionCode}`);
+  lines.push('');
+  lines.push('splits:');
+  for (const apk of options.validationResult.allApks) {
+    lines.push(`- ${apk.fileName} (${apk.sizeBytes} bytes)`);
+  }
+  lines.push('');
+  lines.push('sha256:');
+  for (const apk of options.validationResult.allApks) {
+    lines.push(`${apk.sha256}  ${apk.fileName}`);
+  }
+  lines.push('');
   lines.push('==================================================');
   lines.push('        APPRELAY APK PULL MANIFEST (V1)          ');
-  lines.push('==================================================');
-  lines.push(`Package ID:     ${options.packageId}`);
-  lines.push(`Version Name:   ${options.versionName}`);
-  lines.push(`Version Code:   ${options.versionCode}`);
-  lines.push(`Generated At:   ${new Date().toISOString()}`);
-  lines.push('');
-  lines.push('--- DEVICE PROFILE ---');
-  if (options.deviceProfile) {
-    for (const [key, value] of Object.entries(options.deviceProfile)) {
-      lines.push(`${key}: ${value}`);
-    }
-  } else {
-    lines.push('Profile: Not specified');
-  }
-  lines.push('');
-  lines.push('--- EXTRACTED APKS & SHA-256 HASHES ---');
-  for (const apk of options.validationResult.allApks) {
-    lines.push(`${apk.fileName} | Size: ${apk.sizeBytes} bytes | SHA256: ${apk.sha256}`);
-  }
-  lines.push('');
   lines.push('==================================================');
 
   return lines.join('\n');

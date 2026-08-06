@@ -26,3 +26,12 @@ supabase/.temp
 
 # Worker temp workspace
 workers/app-relay-worker/tmp
+
+# Android SDK (local install)
+tools/
+
+# APK work output
+work/apks/
+
+# cmdline-tools
+cmdline-tools/

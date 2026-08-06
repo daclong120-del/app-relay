@@ -130,7 +130,7 @@ export class WorkerEngine {
       if (job.jobType === 'pull_apk') {
         if (process.env.USE_FAKE_PIPELINE === 'true') {
           console.log('[WorkerEngine] USE_FAKE_PIPELINE enabled. Running fake pipeline harness.');
-          const { runFakePullApkPipeline } = await import('../pipeline/fake-pull-apk.js');
+          const { runFakePullApkPipeline } = await import('../pipeline/fake-pull-apk');
           result = await runFakePullApkPipeline({
             jobId: job.id,
             workerId: this.workerId,
