@@ -16,6 +16,7 @@ export interface WorkerConfig {
   jobHeartbeatIntervalMs: number;
   workerVersion: string;
   capability: string;
+  headless: boolean;
 }
 
 export function loadWorkerConfig(): WorkerConfig {
@@ -32,6 +33,7 @@ export function loadWorkerConfig(): WorkerConfig {
   const pollIntervalMs = Math.max(1000, parseInt(process.env.POLL_INTERVAL_MS || '5000', 10));
   const workerHeartbeatIntervalMs = Math.max(5000, parseInt(process.env.WORKER_HEARTBEAT_INTERVAL_MS || '30000', 10));
   const jobHeartbeatIntervalMs = Math.max(3000, parseInt(process.env.JOB_HEARTBEAT_INTERVAL_MS || '10000', 10));
+  const headless = process.env.HEADLESS === 'true' || process.env.NODE_ENV === 'production';
 
   return {
     workerId,
@@ -49,6 +51,7 @@ export function loadWorkerConfig(): WorkerConfig {
     jobHeartbeatIntervalMs,
     workerVersion: '1.0.0',
     capability: 'app_artifact_acquisition',
+    headless,
   };
 }
 

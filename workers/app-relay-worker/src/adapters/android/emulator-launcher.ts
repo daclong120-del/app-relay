@@ -10,6 +10,7 @@ export interface EnsureEmulatorOptions {
   adbClient?: AdbClient;
   bootTimeoutMs?: number;
   pollIntervalMs?: number;
+  headless?: boolean;
   isCancelled?: () => boolean;
 }
 
@@ -29,6 +30,7 @@ export async function ensureEmulatorRunning(
   const bootTimeoutMs = options?.bootTimeoutMs || 180000;
   const pollIntervalMs = options?.pollIntervalMs || 2000;
   const isCancelled = options?.isCancelled || (() => false);
+  const isHeadless = options?.headless ?? (process.env.HEADLESS === 'true' || process.env.NODE_ENV === 'production');
 
   // 1. Check if device is already online and sys.boot_completed == 1
   try {
@@ -47,7 +49,7 @@ export async function ensureEmulatorRunning(
   }
 
   // 2. Launch emulator in background process (detached)
-  console.log(`[EmulatorLauncher] Device "${serial}" not ready. Launching AVD "${avdName}" via "${emulatorPath}"...`);
+  console.log(`[EmulatorLauncher] Device "${serial}" not ready. Launching AVD "${avdName}" via "${emulatorPath}" (headless=${isHeadless})...`);
 
   const emulatorArgs = [
     '-avd', avdName,
@@ -55,6 +57,10 @@ export async function ensureEmulatorRunning(
     '-netdelay', 'none',
     '-netspeed', 'full',
   ];
+
+  if (isHeadless) {
+    emulatorArgs.push('-no-window', '-no-audio', '-no-boot-anim', '-gpu', 'off');
+  }
 
   try {
     const child = spawn(emulatorPath, emulatorArgs, {

@@ -89,6 +89,7 @@ export function parsePlayUiAutomatorXml(xml: string): UiClickTarget {
     // Check Install Button & Dialog Accept/Continue Buttons
     if (
       /^Install$/i.test(label) ||
+      /^Cài đặt$/i.test(label) ||
       /^Get$/i.test(label) ||
       /^Accept$/i.test(label) ||
       /^Continue$/i.test(label) ||

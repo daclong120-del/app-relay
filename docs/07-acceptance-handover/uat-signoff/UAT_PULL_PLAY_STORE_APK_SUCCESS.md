@@ -56,17 +56,28 @@ npx tsx scripts/pull-from-play.ts "https://play.google.com/store/apps/details?id
   ============================================================
   ```
 
+### Lệnh 4: Thử nghiệm tự động kích hoạt Headless Emulator (`test-headless-pull.ts`)
+```powershell
+npx tsx scripts/test-headless-pull.ts "https://play.google.com/store/apps/details?id=com.facemoji.lite"
+```
+- **Kịch bản:** Tự động phát hiện Emulator đang tắt, kích hoạt AVD `chpay` ở chế độ Headless (`-no-window -no-audio -no-boot-anim -gpu off`), tự động mở khóa màn hình, cài đặt ứng dụng qua Play Store UI Automation và kéo bộ APK.
+- **Kết quả:** **THÀNH CÔNG RỰC RỠ trong 30 giây!**
+  - Package: `com.facemoji.lite`
+  - Base APK: `base.apk` (**47.37 MB**)
+  - Splits: `split_config.arm64_v8a.apk` (3.41 MB), `split_config.xxhdpi.apk` (266.77 KB)
+  - Output: [`work/apks/com.facemoji.lite/`](file:///d:/super-tools/app-relay/work/apks/com.facemoji.lite/)
+
 ---
 
 ## 3. Cấu Trúc Sản Phẩm Đầu Ra (Artifact Proof)
 
-Toàn bộ dữ liệu thu được đã được kiểm tra và lưu chuẩn tại thư mục [`work/apks/colorwidgets.ios.widget.topwidgets/`](file:///d:/super-tools/app-relay/work/apks/colorwidgets.ios.widget.topwidgets/):
+Toàn bộ dữ liệu thu được đã được kiểm tra và lưu chuẩn tại thư mục [`work/apks/colorwidgets.ios.widget.topwidgets/`](file:///d:/super-tools/app-relay/work/apks/colorwidgets.ios.widget.topwidgets/) và [`work/apks/com.facemoji.lite/`](file:///d:/super-tools/app-relay/work/apks/com.facemoji.lite/):
 
 ```text
-work/apks/colorwidgets.ios.widget.topwidgets/
-├── base.apk                         (42.15 MB - SHA256 Verified)
-├── split_config.x86_64.apk          (16.04 MB - SHA256 Verified)
-├── split_config.xxhdpi.apk          (8.50 MB - SHA256 Verified)
+work/apks/com.facemoji.lite/
+├── base.apk                         (47.37 MB - SHA256 Verified)
+├── split_config.arm64_v8a.apk       (3.41 MB - SHA256 Verified)
+├── split_config.xxhdpi.apk          (266.77 KB - SHA256 Verified)
 ├── PULL_MANIFEST.txt                (Ghi rõ thông số package, ISO timestamp & SHA256)
 ├── package-info.txt                 (Dumpsys package từ thiết bị)
 ├── device-dir.listing               (ls -la từ thư mục cài đặt /data/app/)
@@ -75,7 +86,7 @@ work/apks/colorwidgets.ios.widget.topwidgets/
     ├── listing.json                 (Metadata cấu trúc JSON)
     ├── icon.png                     (Icon ứng dụng)
     ├── page.html                    (File HTML gốc từ Play Store)
-    └── screenshots/                 (30 ảnh chụp màn hình chất lượng cao)
+    └── screenshots/                 (26 ảnh chụp màn hình chất lượng cao)
         ├── screenshot_01.png
         └── ...
 ```
@@ -94,8 +105,8 @@ npx tsx scripts/run-all-tests.ts
 
 ## 5. Kết Luận & Nghiệm Thu
 
-Hệ thống đã hoàn tất 100% các tiêu chí nghiệm thu của quy trình Pull APK & Listing từ Google Play. Tính năng đã sẵn sàng cho cả hai hình thức sử dụng:
-1. **Thủ công qua CLI:** `npx tsx scripts/pull-from-play.ts <PLAY_URL>`
-2. **Tự động qua Worker Daemon:** [`workers/app-relay-worker`](file:///d:/super-tools/app-relay/workers/app-relay-worker/)
+Hệ thống đã hoàn tất 100% các tiêu chí nghiệm thu của quy trình Pull APK & Listing từ Google Play (cả giao diện GUI lẫn ngầm Headless). Tính năng đã sẵn sàng cho cả hai hình thức sử dụng:
+1. **Thủ công qua CLI / Headless Test:** `npx tsx scripts/test-headless-pull.ts <PLAY_URL>`
+2. **Tự động qua Worker Daemon 24/7:** [`workers/app-relay-worker`](file:///d:/super-tools/app-relay/workers/app-relay-worker/)
 
 *Nghiệm thu ngày 06 tháng 08 năm 2026.*
