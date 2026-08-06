@@ -1,85 +1,57 @@
-# 🚀 AppRelay Public API Quick-Start & Testing Guide (v1.3.1)
+# AppRelay Public API — Quick Start Guide
 
-Tài liệu hướng dẫn Test nhanh các REST API của **AppRelay** dành cho Admin & Integration Tester.
+## Connection
 
-> 🌐 **Base URL (VPS Deployed)**: `http://79.108.216.178:3001/api/app-relay/v1`  
-> 💻 **Base URL (Local Dev)**: `http://localhost:3000/api/app-relay/v1`  
-> 🔑 **Auth Header**: `Authorization: Bearer dev-worker-token-secret-key`  
-> 📄 **Content-Type**: `application/json`
+| | |
+|---|---|
+| **Base URL** | `http://79.108.216.178:3001/api/app-relay/v1` |
+| **Auth** | `Authorization: Bearer dev-worker-token-secret-key` |
+| **Content-Type** | `application/json` |
 
----
-
-## 🔑 1. Cấu Hình Host & Key Chạy Nhanh (cURL Quick-Setup)
-
-Đối tác / Tester copy 2 dòng sau paste vào Terminal trước khi chạy các câu lệnh cURL bên dưới:
+### Setup (paste vào terminal 1 lần)
 
 ```bash
-# 1. Host VPS chính thức đang chạy
-export BASE_URL="http://79.108.216.178:3001/api/app-relay/v1"
-
-# 2. Secret Key / Bearer Token mặc định
-export AUTH_TOKEN="dev-worker-token-secret-key"
+export BASE="http://79.108.216.178:3001/api/app-relay/v1"
+export TOKEN="dev-worker-token-secret-key"
 ```
 
 ---
 
-## ⚡ 2. Lệnh cURL Dùng Ngay Cho Đối Tác (Copy-Paste Trực Tiếp)
+## Endpoints
 
-Đối tác có thể copy chính xác 100% câu lệnh cURL dưới đây để chạy trực tiếp trên VPS của bạn:
+### Health Check
 
-### Example: Kéo App Hàng Loạt (POST `/jobs/batch`)
 ```bash
-curl -X POST "http://79.108.216.178:3001/api/app-relay/v1/jobs/batch" \
-  -H "Authorization: Bearer dev-worker-token-secret-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "urls": [
-      "https://play.google.com/store/apps/details?id=com.facemoji.lite",
-      "https://play.google.com/store/apps/details?id=com.simejikeyboard"
-    ]
-  }'
+curl "$BASE/health"
 ```
 
----
-
-## 📋 2. Danh Sách Endpoint & Lệnh cURL Test Nhanh
-
-### 1. Health Check (Không cần Auth)
-```bash
-curl -X GET "$BASE_URL/health"
-```
-**Response Mẫu (200 OK):**
 ```json
-{
-  "status": "ok",
-  "service": "app-relay-api",
-  "version": "1.3.1",
-  "timestamp": "2026-08-06T15:15:00.000Z"
-}
+{ "status": "ok", "service": "app-relay-api", "version": "1.0.0" }
 ```
 
 ---
 
-### 2. Thống Kê Tổng Quan (`GET /overview`)
+### Tổng quan hệ thống
+
 ```bash
-curl -X GET "$BASE_URL/overview" \
-  -H "Authorization: Bearer $AUTH_TOKEN"
+curl "$BASE/overview" -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
 
-### 3. Xem Danh Mục App Đã Kéo (`GET /apps`)
+### Danh sách app đã kéo
+
 ```bash
-curl -X GET "$BASE_URL/apps" \
-  -H "Authorization: Bearer $AUTH_TOKEN"
+curl "$BASE/apps" -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
 
-### 4. Gửi Yêu Cầu Kéo 1 App (`POST /jobs`)
+### Kéo 1 app
+
 ```bash
-curl -X POST "$BASE_URL/jobs" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+curl -X POST "$BASE/jobs" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "playUrl": "https://play.google.com/store/apps/details?id=com.facemoji.lite",
@@ -87,24 +59,25 @@ curl -X POST "$BASE_URL/jobs" \
     "includeScreenshots": true
   }'
 ```
-**Response Mẫu (201 Created):**
+
+**Response** `201`:
 ```json
 {
   "data": {
     "jobId": "job_1786001234_abc",
     "packageId": "com.facemoji.lite",
-    "status": "queued",
-    "createdAt": "2026-08-06T15:15:00.000Z"
+    "status": "queued"
   }
 }
 ```
 
 ---
 
-### 5. Gửi Yêu Cầu Kéo Hàng Loạt (`POST /jobs/batch`)
+### Kéo nhiều app
+
 ```bash
-curl -X POST "$BASE_URL/jobs/batch" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+curl -X POST "$BASE/jobs/batch" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "urls": [
@@ -116,65 +89,68 @@ curl -X POST "$BASE_URL/jobs/batch" \
 
 ---
 
-### 6. Lấy Danh Sách Jobs (`GET /jobs`)
+### Danh sách jobs
+
 ```bash
-curl -X GET "$BASE_URL/jobs?status=running&limit=10" \
-  -H "Authorization: Bearer $AUTH_TOKEN"
+# Tất cả
+curl "$BASE/jobs" -H "Authorization: Bearer $TOKEN"
+
+# Lọc theo status + phân trang
+curl "$BASE/jobs?status=running&page=1&pageSize=10" -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
 
-### 7. Xem Chi Tiết 1 Job (`GET /jobs/{jobId}`)
+### Chi tiết 1 job
+
 ```bash
-curl -X GET "$BASE_URL/jobs/job_1786001234_abc" \
-  -H "Authorization: Bearer $AUTH_TOKEN"
+curl "$BASE/jobs/{jobId}" -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
 
-### 8. Xem Stream Tiến Độ Timeline (`GET /jobs/{jobId}/events`)
+### Timeline sự kiện của job
+
 ```bash
-curl -X GET "$BASE_URL/jobs/job_1786001234_abc/events" \
-  -H "Authorization: Bearer $AUTH_TOKEN"
+curl "$BASE/jobs/{jobId}/events" -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
 
-### 9. Hủy Yêu Cầu Đang Chạy (`POST /jobs/{jobId}/cancel`)
+### Hủy job
+
 ```bash
-curl -X POST "$BASE_URL/jobs/job_1786001234_abc/cancel" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+curl -X POST "$BASE/jobs/{jobId}/cancel" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "reason": "Cancelled by testing operator"
-  }'
+  -d '{ "reason": "cancel reason" }'
 ```
 
 ---
 
-### 10. Thử Lại Job Thất Bại (`POST /jobs/{jobId}/retry`)
+### Thử lại job thất bại
+
 ```bash
-curl -X POST "$BASE_URL/jobs/job_1786001234_abc/retry" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+curl -X POST "$BASE/jobs/{jobId}/retry" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "reason": "Re-triggering failed job test"
-  }'
+  -d '{ "reason": "retry reason" }'
 ```
 
 ---
 
-### 11. Lấy Link Tải File ZIP APK (`POST /jobs/{jobId}/artifact/download-url`)
+### Lấy link tải APK
+
 ```bash
-curl -X POST "$BASE_URL/jobs/job_1786001234_abc/artifact/download-url" \
-  -H "Authorization: Bearer $AUTH_TOKEN"
+curl -X POST "$BASE/jobs/{jobId}/artifact/download-url" \
+  -H "Authorization: Bearer $TOKEN"
 ```
-**Response Mẫu (200 OK):**
+
+**Response** `200`:
 ```json
 {
   "data": {
-    "jobId": "job_1786001234_abc",
-    "downloadUrl": "https://<YOUR_SUPABASE_STORAGE>/release-ops/artifacts/job_1786001234_abc.zip?token=...",
+    "downloadUrl": "https://storage.example.com/artifacts/job_xxx.zip?token=...",
     "expiresAt": "2026-08-06T16:15:00.000Z"
   }
 }
@@ -182,17 +158,17 @@ curl -X POST "$BASE_URL/jobs/job_1786001234_abc/artifact/download-url" \
 
 ---
 
-### 12. Kiểm Tra Sức Khỏe Fleet Máy Ảo (`GET /workers/fleet-status`)
+### Trạng thái fleet worker
+
 ```bash
-curl -X GET "$BASE_URL/workers/fleet-status" \
-  -H "Authorization: Bearer $AUTH_TOKEN"
+curl "$BASE/workers/fleet-status" -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
 
-## 🛑 3. Quy Chuẩn Báo Lỗi Standard Error Envelope
+## Error Format
 
-Tất cả các lỗi (4xx / 5xx) đều phản hồi đúng định dạng:
+Tất cả lỗi trả về cùng format:
 
 ```json
 {
