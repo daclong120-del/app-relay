@@ -23,8 +23,9 @@ services:
     restart: unless-stopped
     environment:
       - WORKER_NAME=app-relay-worker-01
-      - GATEWAY_URL=http://app-relay-dashboard:3000/api/app-relay/v1
+      - GATEWAY_URL=http://app-relay-dashboard:3000/api/internal/worker/v1
       - WORKER_TOKEN=${WORKER_TOKEN:-dev-worker-token-secret-key}
+      - USE_FAKE_PIPELINE=true
       - MAX_PARALLEL_JOBS=1
       - POLL_INTERVAL_MS=5000
     depends_on:

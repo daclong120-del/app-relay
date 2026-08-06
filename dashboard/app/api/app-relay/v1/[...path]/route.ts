@@ -262,7 +262,13 @@ const fallbackDb = new FallbackDbClient();
 
 function getDbClient(): any {
   const { supabaseUrl, supabaseServiceRoleKey } = getAppRelayConfig();
-  if (supabaseUrl && supabaseServiceRoleKey && supabaseUrl !== 'https://supabase.local') {
+  if (
+    supabaseUrl &&
+    supabaseServiceRoleKey &&
+    supabaseUrl !== 'https://supabase.local' &&
+    !supabaseUrl.includes('mock') &&
+    !supabaseUrl.includes('example')
+  ) {
     try {
       const { createClient } = require('@supabase/supabase-js');
       return createClient(supabaseUrl, supabaseServiceRoleKey);

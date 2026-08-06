@@ -1,7 +1,7 @@
 // APK Split Extractor Component
 
 import { promises as fs } from 'fs';
-import { basename, join } from 'path';
+import { basename, dirname, join } from 'path';
 import { AdbClient } from './adb-client';
 
 export interface ApkExtractionResult {
