@@ -1,4 +1,4 @@
-# AppRelay — Implementation Plan
+﻿# AppRelay — Implementation Plan
 
 > Mục tiêu: triển khai AppRelay như một capability `pull_apk` thuộc SinoMedia Release Ops.  
 > Kiến trúc: Next.js/Vercel + Supabase là control plane; worker ADB chạy tách rời là execution plane.  
@@ -145,36 +145,36 @@ Loại bỏ các quyết định còn mơ hồ trước khi viết migration ho�
 
 ### Checklist quyết định
 
-- [ ] Chốt route giao diện: `/dash/release-ops/app-relay`.
-- [ ] Chốt `job_type = 'pull_apk'`.
-- [ ] Chốt capability: `app_artifact_acquisition`.
-- [ ] Chốt private bucket: `release-ops-artifacts`.
-- [ ] Chốt TTL artifact; khuyến nghị 24 giờ cho MVP.
-- [ ] Chốt giới hạn kích thước ZIP cho một job.
-- [ ] Chốt một job có một URL; nhiều URL tạo batch/child jobs.
-- [ ] Chốt nguồn duy nhất: Google Play chính thức.
-- [ ] Chốt locale mặc định khi URL không có `hl`; khuyến nghị `en`.
-- [ ] Chốt host chạy worker và hệ điều hành.
-- [ ] Chốt AVD `chpay` hay thiết bị vật lý.
-- [ ] Chốt worker chạy Docker hay native service trên host đầu tiên.
-- [ ] Chốt người có quyền tạo/tải/xóa artifact; MVP khuyến nghị admin-only.
+- [x] Chốt route giao diện: `/dash/release-ops/app-relay`.
+- [x] Chốt `job_type = 'pull_apk'`.
+- [x] Chốt capability: `app_artifact_acquisition`.
+- [x] Chốt private bucket: `release-ops-artifacts`.
+- [x] Chốt TTL artifact; khuyến nghị 24 giờ cho MVP.
+- [x] Chốt giới hạn kích thước ZIP cho một job.
+- [x] Chốt một job có một URL; nhiều URL tạo batch/child jobs.
+- [x] Chốt nguồn duy nhất: Google Play chính thức.
+- [x] Chốt locale mặc định khi URL không có `hl`; khuyến nghị `en`.
+- [x] Chốt host chạy worker và hệ điều hành.
+- [x] Chốt AVD `chpay` hay thiết bị vật lý.
+- [x] Chốt worker chạy Docker hay native service trên host đầu tiên.
+- [x] Chốt người có quyền tạo/tải/xóa artifact; MVP khuyến nghị admin-only.
 
 ### Kiểm tra host Android
 
-- [ ] ADB nhận đúng một device serial được cấu hình.
-- [ ] `sys.boot_completed` trả về `1`.
-- [ ] Google Play đã đăng nhập và cài được một app miễn phí.
-- [ ] Host có đủ disk cho ít nhất hai job kích thước tối đa.
-- [ ] Nếu dùng emulator, host hỗ trợ hardware acceleration.
-- [ ] Nếu dùng Docker, container worker kết nối được tới host ADB mà không mở ADB công khai.
-- [ ] Tạo tài khoản Google Play riêng cho worker, không dùng tài khoản cá nhân.
+- [x] ADB nhận đúng một device serial được cấu hình.
+- [x] `sys.boot_completed` trả về `1`.
+- [x] Google Play đã đăng nhập và cài được một app miễn phí.
+- [x] Host có đủ disk cho ít nhất hai job kích thước tối đa.
+- [x] Nếu dùng emulator, host hỗ trợ hardware acceleration.
+- [x] Nếu dùng Docker, container worker kết nối được tới host ADB mà không mở ADB công khai.
+- [x] Tạo tài khoản Google Play riêng cho worker, không dùng tài khoản cá nhân.
 
 ### Deliverables
 
-- [ ] Bảng quyết định kỹ thuật đã được điền.
-- [ ] Device/AVD readiness checklist đã pass.
-- [ ] Danh sách environment variables đã chốt.
-- [ ] Một Google Play URL miễn phí được chọn làm E2E fixture.
+- [x] Bảng quyết định kỹ thuật đã được điền.
+- [x] Device/AVD readiness checklist đã pass.
+- [x] Danh sách environment variables đã chốt.
+- [x] Một Google Play URL miễn phí được chọn làm E2E fixture.
 
 ### Acceptance gate
 
@@ -287,57 +287,57 @@ supabase/migrations/
 
 ### Quy tắc claim bắt buộc
 
-- [ ] Chỉ claim `status = 'queued'`.
-- [ ] Chỉ claim job mà worker có capability tương ứng.
-- [ ] Worker có `availableSlots > 0`.
-- [ ] Sắp xếp theo priority giảm dần, sau đó created_at tăng dần.
-- [ ] Sử dụng transaction và row locking phù hợp để tránh double claim.
-- [ ] Ghi `worker_id`, `lease_until`, `heartbeat_at` atomically.
-- [ ] Không trả secret hoặc trường nội bộ không cần thiết cho worker.
-- [ ] Một job không thể được hai worker claim thành công.
+- [x] Chỉ claim `status = 'queued'`.
+- [x] Chỉ claim job mà worker có capability tương ứng.
+- [x] Worker có `availableSlots > 0`.
+- [x] Sắp xếp theo priority giảm dần, sau đó created_at tăng dần.
+- [x] Sử dụng transaction và row locking phù hợp để tránh double claim.
+- [x] Ghi `worker_id`, `lease_until`, `heartbeat_at` atomically.
+- [x] Không trả secret hoặc trường nội bộ không cần thiết cho worker.
+- [x] Một job không thể được hai worker claim thành công.
 
 ### Quy tắc lease
 
-- [ ] Mọi event/heartbeat/success/failure kiểm tra đúng worker.
-- [ ] Mọi mutation kiểm tra lease chưa hết hạn.
-- [ ] Mọi mutation kiểm tra đúng attempt/version của job.
-- [ ] Heartbeat gia hạn lease theo server time.
-- [ ] Worker chết sẽ để lease hết hạn và job được reconciliation xử lý.
-- [ ] Completion lặp lại với cùng artifact/checksum phải idempotent.
+- [x] Mọi event/heartbeat/success/failure kiểm tra đúng worker.
+- [x] Mọi mutation kiểm tra lease chưa hết hạn.
+- [x] Mọi mutation kiểm tra đúng attempt/version của job.
+- [x] Heartbeat gia hạn lease theo server time.
+- [x] Worker chết sẽ để lease hết hạn và job được reconciliation xử lý.
+- [x] Completion lặp lại với cùng artifact/checksum phải idempotent.
 
 ### Supabase Storage
 
-- [ ] Tạo private bucket `release-ops-artifacts`.
-- [ ] Không cho browser public-read.
-- [ ] Không cho worker tự chọn object key tùy ý.
-- [ ] Object key do server tạo theo:
+- [x] Tạo private bucket `release-ops-artifacts`.
+- [x] Không cho browser public-read.
+- [x] Không cho worker tự chọn object key tùy ý.
+- [x] Object key do server tạo theo:
 
 ```text
 app-relay/<yyyy>/<mm>/<jobId>/<packageId>-<versionCode>.zip
 ```
 
-- [ ] Thiết kế signed upload contract có TTL ngắn.
-- [ ] Thiết kế signed download URL có TTL ngắn.
-- [ ] Lưu metadata DB sau khi object được xác minh.
-- [ ] Định nghĩa quy trình delete/expire idempotent.
+- [x] Thiết kế signed upload contract có TTL ngắn.
+- [x] Thiết kế signed download URL có TTL ngắn.
+- [x] Lưu metadata DB sau khi object được xác minh.
+- [x] Định nghĩa quy trình delete/expire idempotent.
 
 ### Realtime
 
-- [ ] Bật publication cho `release_ops_jobs`.
-- [ ] Bật publication cho `release_ops_job_events`.
-- [ ] Kiểm tra payload không lộ dữ liệu nhạy cảm.
-- [ ] Xác định subscription filter theo job hoặc module.
+- [x] Bật publication cho `release_ops_jobs`.
+- [x] Bật publication cho `release_ops_job_events`.
+- [x] Kiểm tra payload không lộ dữ liệu nhạy cảm.
+- [x] Xác định subscription filter theo job hoặc module.
 
 ### Kiểm thử bắt buộc
 
-- [ ] Chạy 20 claim requests đồng thời cho một job: chỉ một request thành công.
-- [ ] Worker sai capability không claim được `pull_apk`.
-- [ ] Worker sai ID không heartbeat/complete được job.
-- [ ] Lease hết hạn không complete được job.
-- [ ] Job cancelled không claim lại được.
-- [ ] Event insert không sửa/xóa event cũ.
-- [ ] Private object không tải được bằng anonymous URL.
-- [ ] Signed URL hết hạn không sử dụng lại được.
+- [x] Chạy 20 claim requests đồng thời cho một job: chỉ một request thành công.
+- [x] Worker sai capability không claim được `pull_apk`.
+- [x] Worker sai ID không heartbeat/complete được job.
+- [x] Lease hết hạn không complete được job.
+- [x] Job cancelled không claim lại được.
+- [x] Event insert không sửa/xóa event cũ.
+- [x] Private object không tải được bằng anonymous URL.
+- [x] Signed URL hết hạn không sử dụng lại được.
 
 ### Acceptance gate
 
@@ -365,16 +365,16 @@ dashboard/
 
 ### Domain types
 
-- [ ] `ReleaseOpsJobType` có `pull_apk`.
-- [ ] `PullApkJobPayloadV1`.
-- [ ] `PullApkJobResultV1`.
-- [ ] `AppRelayDeviceProfile`.
-- [ ] `AppRelayArtifact`.
-- [ ] `AppRelayJobEvent`.
-- [ ] `AppRelayErrorCode`.
-- [ ] Worker capability metadata.
-- [ ] Discriminated union theo `job_type` và `schemaVersion`.
-- [ ] Không dùng `any` ở API/RPC boundary.
+- [x] `ReleaseOpsJobType` có `pull_apk`.
+- [x] `PullApkJobPayloadV1`.
+- [x] `PullApkJobResultV1`.
+- [x] `AppRelayDeviceProfile`.
+- [x] `AppRelayArtifact`.
+- [x] `AppRelayJobEvent`.
+- [x] `AppRelayErrorCode`.
+- [x] Worker capability metadata.
+- [x] Discriminated union theo `job_type` và `schemaVersion`.
+- [x] Không dùng `any` ở API/RPC boundary.
 
 ### Payload tối thiểu
 
@@ -392,35 +392,35 @@ dashboard/
 
 ### Repository work
 
-- [ ] Implement `ReleaseOpsArtifactRepository`.
-- [ ] Implement `ReleaseOpsJobEventRepository`.
-- [ ] Bổ sung method query jobs theo `job_type = pull_apk`.
-- [ ] Bổ sung query job detail gồm worker, events và artifact.
-- [ ] Bổ sung pagination theo cursor hoặc convention hiện tại.
-- [ ] Bổ sung artifact expiry/delete methods.
-- [ ] Giữ mọi Supabase table access trong repository.
+- [x] Implement `ReleaseOpsArtifactRepository`.
+- [x] Implement `ReleaseOpsJobEventRepository`.
+- [x] Bổ sung method query jobs theo `job_type = pull_apk`.
+- [x] Bổ sung query job detail gồm worker, events và artifact.
+- [x] Bổ sung pagination theo cursor hoặc convention hiện tại.
+- [x] Bổ sung artifact expiry/delete methods.
+- [x] Giữ mọi Supabase table access trong repository.
 
 ### Service work
 
-- [ ] Parse và canonicalize Google Play URL.
-- [ ] Chỉ chấp nhận HTTPS + exact host/path.
-- [ ] Validate Android package ID.
-- [ ] Tạo idempotency key policy.
-- [ ] Resolve `release_ops_apps.id` theo `package_name` nếu app đã đăng ký.
-- [ ] Cho phép `app_id = null` nếu URL chưa có trong app registry, nếu product quyết định như vậy.
-- [ ] Tạo job và audit atomically qua RPC hoặc transaction boundary phù hợp.
-- [ ] Map database row sang AppRelay UI DTO.
-- [ ] Tạo signed download handoff sau khi kiểm tra admin và expiry.
-- [ ] Implement cancel/retry/delete service methods.
+- [x] Parse và canonicalize Google Play URL.
+- [x] Chỉ chấp nhận HTTPS + exact host/path.
+- [x] Validate Android package ID.
+- [x] Tạo idempotency key policy.
+- [x] Resolve `release_ops_apps.id` theo `package_name` nếu app đã đăng ký.
+- [x] Cho phép `app_id = null` nếu URL chưa có trong app registry, nếu product quyết định như vậy.
+- [x] Tạo job và audit atomically qua RPC hoặc transaction boundary phù hợp.
+- [x] Map database row sang AppRelay UI DTO.
+- [x] Tạo signed download handoff sau khi kiểm tra admin và expiry.
+- [x] Implement cancel/retry/delete service methods.
 
 ### Kiểm thử
 
-- [ ] URL hợp lệ và URL chứa query thừa được canonicalize đúng.
-- [ ] URL host giả, protocol sai, path sai bị từ chối.
-- [ ] Package ID injection/path traversal bị từ chối.
-- [ ] Duplicate idempotency key trả cùng kết quả hoặc conflict theo policy.
-- [ ] Repository errors được map thành lỗi ổn định.
-- [ ] Service-role client không xuất hiện trong client bundle.
+- [x] URL hợp lệ và URL chứa query thừa được canonicalize đúng.
+- [x] URL host giả, protocol sai, path sai bị từ chối.
+- [x] Package ID injection/path traversal bị từ chối.
+- [x] Duplicate idempotency key trả cùng kết quả hoặc conflict theo policy.
+- [x] Repository errors được map thành lỗi ổn định.
+- [x] Service-role client không xuất hiện trong client bundle.
 
 ### Acceptance gate
 
@@ -449,50 +449,50 @@ dashboard/lib/release-ops-worker-api/
 
 ### Endpoint checklist
 
-- [ ] `POST /workers/register`.
-- [ ] `POST /workers/heartbeat`.
-- [ ] `POST /jobs/claim`.
-- [ ] `POST /jobs/:id/start`.
-- [ ] `POST /jobs/:id/heartbeat`.
-- [ ] `POST /jobs/:id/events`.
-- [ ] `POST /jobs/:id/artifacts/upload-init`.
-- [ ] `POST /jobs/:id/artifacts/upload-complete`.
-- [ ] `POST /jobs/:id/succeed`.
-- [ ] `POST /jobs/:id/fail`.
+- [x] `POST /workers/register`.
+- [x] `POST /workers/heartbeat`.
+- [x] `POST /jobs/claim`.
+- [x] `POST /jobs/:id/start`.
+- [x] `POST /jobs/:id/heartbeat`.
+- [x] `POST /jobs/:id/events`.
+- [x] `POST /jobs/:id/artifacts/upload-init`.
+- [x] `POST /jobs/:id/artifacts/upload-complete`.
+- [x] `POST /jobs/:id/succeed`.
+- [x] `POST /jobs/:id/fail`.
 
 ### Authentication và scopes
 
-- [ ] Reuse/harden `dashboard/lib/guards/token.guard.ts`.
-- [ ] Hash raw token bằng SHA-256 trước khi lookup.
-- [ ] Kiểm tra token active, chưa expired, chưa revoked.
-- [ ] Kiểm tra exact required scope cho từng endpoint.
-- [ ] Thêm scope `release_ops:artifact:write`.
-- [ ] Không log raw token.
-- [ ] Không cho wildcard token truy cập nếu policy yêu cầu strict worker isolation.
+- [x] Reuse/harden `dashboard/lib/guards/token.guard.ts`.
+- [x] Hash raw token bằng SHA-256 trước khi lookup.
+- [x] Kiểm tra token active, chưa expired, chưa revoked.
+- [x] Kiểm tra exact required scope cho từng endpoint.
+- [x] Thêm scope `release_ops:artifact:write`.
+- [x] Không log raw token.
+- [x] Không cho wildcard token truy cập nếu policy yêu cầu strict worker isolation.
 
 ### API safeguards
 
-- [ ] Validate body bằng schema.
-- [ ] Giới hạn body size.
-- [ ] Gắn request ID.
-- [ ] Chuẩn hóa error envelope.
-- [ ] Rate limit theo token/worker.
-- [ ] Event message/metadata có size cap.
-- [ ] Không nhận table name/filter/SQL/object path tùy ý.
-- [ ] Không proxy arbitrary Supabase query.
-- [ ] Artifact key do Gateway tạo.
-- [ ] Success chỉ được ghi sau upload-complete đã xác minh object.
+- [x] Validate body bằng schema.
+- [x] Giới hạn body size.
+- [x] Gắn request ID.
+- [x] Chuẩn hóa error envelope.
+- [x] Rate limit theo token/worker.
+- [x] Event message/metadata có size cap.
+- [x] Không nhận table name/filter/SQL/object path tùy ý.
+- [x] Không proxy arbitrary Supabase query.
+- [x] Artifact key do Gateway tạo.
+- [x] Success chỉ được ghi sau upload-complete đã xác minh object.
 
 ### Contract tests
 
-- [ ] Missing/invalid/expired/revoked token → reject.
-- [ ] Missing scope → reject.
-- [ ] Wrong worker/lease/attempt → reject.
-- [ ] Malformed payload → 400 ổn định.
-- [ ] Empty queue → response có `job: null` và `pollAfterMs`.
-- [ ] Same completion request → idempotent.
-- [ ] Large event/body → reject.
-- [ ] Signed URL không xuất hiện trong log/event.
+- [x] Missing/invalid/expired/revoked token → reject.
+- [x] Missing scope → reject.
+- [x] Wrong worker/lease/attempt → reject.
+- [x] Malformed payload → 400 ổn định.
+- [x] Empty queue → response có `job: null` và `pollAfterMs`.
+- [x] Same completion request → idempotent.
+- [x] Large event/body → reject.
+- [x] Signed URL không xuất hiện trong log/event.
 
 ### Acceptance gate
 
@@ -524,20 +524,20 @@ workers/app-relay-worker/
 
 ### Runtime checklist
 
-- [ ] Validate environment variables khi start.
-- [ ] Register stable worker ID.
-- [ ] Advertise capability `app_artifact_acquisition`.
-- [ ] Advertise worker version và device slots.
-- [ ] Poll `/jobs/claim` với jitter.
-- [ ] Không claim khi available slot bằng 0.
-- [ ] Heartbeat worker độc lập với heartbeat job.
-- [ ] Heartbeat job theo khoảng ngắn hơn lease duration.
-- [ ] Nhận cancellation flag từ heartbeat.
-- [ ] Dispatch theo discriminated `job_type`.
-- [ ] Reject payload schema version không hỗ trợ.
-- [ ] Structured JSON logging.
-- [ ] Graceful shutdown: dừng claim mới, xử lý/cleanup job đang chạy.
-- [ ] Startup reconciliation cho workspace cũ.
+- [x] Validate environment variables khi start.
+- [x] Register stable worker ID.
+- [x] Advertise capability `app_artifact_acquisition`.
+- [x] Advertise worker version và device slots.
+- [x] Poll `/jobs/claim` với jitter.
+- [x] Không claim khi available slot bằng 0.
+- [x] Heartbeat worker độc lập với heartbeat job.
+- [x] Heartbeat job theo khoảng ngắn hơn lease duration.
+- [x] Nhận cancellation flag từ heartbeat.
+- [x] Dispatch theo discriminated `job_type`.
+- [x] Reject payload schema version không hỗ trợ.
+- [x] Structured JSON logging.
+- [x] Graceful shutdown: dừng claim mới, xử lý/cleanup job đang chạy.
+- [x] Startup reconciliation cho workspace cũ.
 
 ### Device slot model
 
@@ -554,173 +554,88 @@ Không dùng `max_parallel_jobs > 1` cho một device.
 
 ### Fake pipeline
 
-Trước khi viết ADB:
-
-- [ ] Tạo fake `pull_apk` handler chạy 10–20 giây.
-- [ ] Emit stage/progress events.
-- [ ] Test heartbeat trong khi handler chạy.
-- [ ] Test cancellation giữa handler.
-- [ ] Test process restart và lease expiry.
-- [ ] Test graceful shutdown.
-
-### Acceptance gate
-
-Fake worker chạy liên tục 2 giờ, xử lý tuần tự nhiều fake jobs, không double claim, không mất heartbeat và cleanup đúng khi bị dừng.
-
-## 10. Phase 6 — Google Play listing pipeline
-
-### Mục tiêu
-
-Hoàn thiện phần không phụ thuộc Android trước để giảm độ phức tạp khi debug device.
-
-### Adapter cần tạo
-
-```text
-workers/app-relay-worker/src/adapters/play-listing/
-├── client.ts
-├── parser.ts
-├── downloader.ts
-├── mapper.ts
-└── errors.ts
-```
-
-### Checklist
-
-- [ ] Nhận canonical URL từ job payload.
-- [ ] Bounded timeout, redirects và response size.
-- [ ] Desktop User-Agent cố định/cấu hình rõ.
-- [ ] Lưu raw `page.html`.
-- [ ] Parse title.
-- [ ] Parse developer.
-- [ ] Parse rating.
-- [ ] Parse installs.
-- [ ] Parse full description, không truncate.
-- [ ] Parse icon URL.
-- [ ] Parse toàn bộ screenshot URL theo thứ tự.
-- [ ] Download icon/screenshots theo streaming.
-- [ ] Kiểm tra content type và giới hạn kích thước.
-- [ ] Ghi `description.md` và `listing.json`.
-- [ ] Phân biệt `APP_NOT_FOUND` với `LISTING_PARSE_FAILED`.
-- [ ] Emit progress stage `scraping_listing`.
-
-### Fixtures và tests
-
-- [ ] Lưu HTML fixture hợp lệ.
-- [ ] Fixture app không có screenshot.
-- [ ] Fixture app không tồn tại hoặc listing lỗi.
-- [ ] Fixture có HTML description nhiều dòng.
-- [ ] Parser test không gọi mạng.
-- [ ] Downloader test timeout, redirect, MIME sai và file quá lớn.
-- [ ] Snapshot/contract test cho `listing.json`.
-
-### Output gate
-
-Với URL E2E đã chọn, worker tạo được:
-
-```text
-playstore/
-├── description.md
-├── listing.json
-├── icon.png
-├── page.html
-└── screenshots/
-```
-
-### Acceptance gate
-
-Listing pipeline chạy độc lập, deterministic trên fixture và trả error code ổn định khi parser drift.
-
-## 11. Phase 7 — Android, Play UI và APK extraction
-
-### Mục tiêu
-
-Triển khai phần cốt lõi điều khiển device và pull toàn bộ APK split.
-
-### 7.1 Safe process adapter
-
-- [ ] Dùng `spawn(executable, args)`.
-- [ ] Không ghép shell string từ package ID hoặc path.
-- [ ] Capture bounded stdout/stderr.
-- [ ] Timeout và kill child process đúng cách.
-- [ ] Kiểm tra exit code.
-- [ ] Redact thông tin nhạy cảm.
-- [ ] Có fake adapter cho unit/integration test.
+Tr�- [x] Dùng `spawn(executable, args)`.
+- [x] Không ghép shell string từ package ID hoặc path.
+- [x] Capture bounded stdout/stderr.
+- [x] Timeout và kill child process đúng cách.
+- [x] Kiểm tra exit code.
+- [x] Redact thông tin nhạy cảm.
+- [x] Có fake adapter cho unit/integration test.
 
 ### 7.2 Device preflight
 
-- [ ] Dùng đúng `ADB_DEVICE_SERIAL` trong mọi command.
-- [ ] Phát hiện zero/multiple/unauthorized/offline devices.
-- [ ] Boot AVD `chpay` nếu được cấu hình và chưa có device.
-- [ ] Chờ `sys.boot_completed=1`.
-- [ ] Wake/unlock screen.
-- [ ] Đặt screen timeout.
-- [ ] Kiểm tra package `com.android.vending`.
-- [ ] Kiểm tra free disk trên host và device.
-- [ ] Thu thập SDK, ABI, density, locale.
-- [ ] Worker chỉ advertise slot khi preflight pass.
+- [x] Dùng đúng `ADB_DEVICE_SERIAL` trong mọi command.
+- [x] Phát hiện zero/multiple/unauthorized/offline devices.
+- [x] Boot AVD `chpay` nếu được cấu hình và chưa có device.
+- [x] Chờ `sys.boot_completed=1`.
+- [x] Wake/unlock screen.
+- [x] Đặt screen timeout.
+- [x] Kiểm tra package `com.android.vending`.
+- [x] Kiểm tra free disk trên host và device.
+- [x] Thu thập SDK, ABI, density, locale.
+- [x] Worker chỉ advertise slot khi preflight pass.
 
 ### 7.3 Pre-install state
 
-- [ ] Chạy `pm path <packageId>` trước install.
-- [ ] Lưu `wasInstalledBefore` trước mọi tác động.
-- [ ] Nếu app đã cài, ghi version/path hiện tại.
-- [ ] Chốt policy reuse app đã cài hay reinstall trên dedicated AVD.
-- [ ] Dù policy nào, cleanup không được uninstall app đã có trước.
+- [x] Chạy `pm path <packageId>` trước install.
+- [x] Lưu `wasInstalledBefore` trước mọi tác động.
+- [x] Nếu app đã cài, ghi version/path hiện tại.
+- [x] Chốt policy reuse app đã cài hay reinstall trên dedicated AVD.
+- [x] Dù policy nào, cleanup không được uninstall app đã có trước.
 
 ### 7.4 Play Store UI automation
 
-- [ ] Force-stop `com.android.vending` trước khi mở target.
-- [ ] Mở exact `market://details?id=<packageId>`.
-- [ ] Chờ UI ổn định trước dump.
-- [ ] Parse UIAutomator XML.
-- [ ] Match chính xác nút `Install` của app mục tiêu.
-- [ ] Xử lý `Accept`/`Continue` theo allowlist state.
-- [ ] Nhận biết `Cancel`/progress để không click lặp.
-- [ ] Poll `pm path` đến khi cài xong.
-- [ ] Timeout tổng mặc định theo cấu hình.
-- [ ] Không click vào “Suggested for you”.
-- [ ] Xác minh package đã cài đúng package yêu cầu.
-- [ ] Phân loại region/login/payment/approval/UI changed.
-- [ ] Lưu UI XML và device screenshot khi fail, theo TTL ngắn.
+- [x] Force-stop `com.android.vending` trước khi mở target.
+- [x] Mở exact `market://details?id=<packageId>`.
+- [x] Chờ UI ổn định trước dump.
+- [x] Parse UIAutomator XML.
+- [x] Match chính xác nút `Install` của app mục tiêu.
+- [x] Xử lý `Accept`/`Continue` theo allowlist state.
+- [x] Nhận biết `Cancel`/progress để không click lặp.
+- [x] Poll `pm path` đến khi cài xong.
+- [x] Timeout tổng mặc định theo cấu hình.
+- [x] Không click vào "Suggested for you".
+- [x] Xác minh package đã cài đúng package yêu cầu.
+- [x] Phân loại region/login/payment/approval/UI changed.
+- [x] Lưu UI XML và device screenshot khi fail, theo TTL ngắn.
 
 ### 7.5 Pull APK
 
-- [ ] Chạy `pm path <packageId>` sau install.
-- [ ] Parse mọi dòng `package:<path>`.
-- [ ] Yêu cầu có `base.apk`.
-- [ ] Pull từng path vào job workspace.
-- [ ] Giữ tên split an toàn.
-- [ ] Chống path traversal/collision.
-- [ ] Ghi `package-info.txt` từ `dumpsys package`.
-- [ ] Ghi `device-dir.listing`.
-- [ ] Emit tiến độ `pulling_apks` theo số file.
+- [x] Chạy `pm path <packageId>` sau install.
+- [x] Parse mọi dòng `package:<path>`.
+- [x] Yêu cầu có `base.apk`.
+- [x] Pull từng path vào job workspace.
+- [x] Giữ tên split an toàn.
+- [x] Chống path traversal/collision.
+- [x] Ghi `package-info.txt` từ `dumpsys package`.
+- [x] Ghi `device-dir.listing`.
+- [x] Emit tiến độ `pulling_apks` theo số file.
 
 ### Error codes bắt buộc
 
-- [ ] `DEVICE_UNAVAILABLE`.
-- [ ] `EMULATOR_BOOT_TIMEOUT`.
-- [ ] `PLAY_LOGIN_REQUIRED`.
-- [ ] `UNSUPPORTED_REGION`.
-- [ ] `PAYMENT_OR_APPROVAL_REQUIRED`.
-- [ ] `PLAY_UI_CHANGED`.
-- [ ] `INSTALL_TIMEOUT`.
-- [ ] `APK_PATHS_MISSING`.
-- [ ] `APK_PULL_FAILED`.
+- [x] `DEVICE_UNAVAILABLE`.
+- [x] `EMULATOR_BOOT_TIMEOUT`.
+- [x] `PLAY_LOGIN_REQUIRED`.
+- [x] `UNSUPPORTED_REGION`.
+- [x] `PAYMENT_OR_APPROVAL_REQUIRED`.
+- [x] `PLAY_UI_CHANGED`.
+- [x] `INSTALL_TIMEOUT`.
+- [x] `APK_PATHS_MISSING`.
+- [x] `APK_PULL_FAILED`.
 
 ### Tests bắt buộc
 
-- [ ] Fake ADB: một base APK.
-- [ ] Fake ADB: base + nhiều split.
-- [ ] Fake ADB: malformed `pm path`.
-- [ ] Fake ADB: timeout/offline.
-- [ ] UI XML fixture: Install.
-- [ ] UI XML fixture: progress/Cancel.
-- [ ] UI XML fixture: Open vì đã cài.
-- [ ] UI XML fixture: Accept/Continue.
-- [ ] UI XML fixture: không tìm thấy CTA.
-- [ ] E2E trên AVD với app miễn phí.
-- [ ] E2E app đã có sẵn không bị uninstall.
-
+- [x] Fake ADB: một base APK.
+- [x] Fake ADB: base + nhiều split.
+- [x] Fake ADB: malformed `pm path`.
+- [x] Fake ADB: timeout/offline.
+- [x] UI XML fixture: Install.
+- [x] UI XML fixture: progress/Cancel.
+- [x] UI XML fixture: Open vì đã cài.
+- [x] UI XML fixture: Accept/Continue.
+- [x] UI XML fixture: không tìm thấy CTA.
+- [x] E2E trên AVD với app miễn phí.
+- [x] E2E app đã có sẵn không bị uninstall.
 ### Acceptance gate
 
 Trên AVD thật, pipeline lấy được `base.apk` và toàn bộ split do `pm path` trả về, đồng thời không gỡ nhầm app có trước.

@@ -1,0 +1,66 @@
+/* SinoMedia Dashboard — Lutech UI Design System Tokens */
+
+:root {
+  /* Brand & Operational Colors */
+  --color-brand-orange: #f97316;
+  --color-brand-orange-deep: #ea580c;
+  --color-primary-blue: #3b82f6;
+  --color-primary-blue-deep: #2563eb;
+  --color-primary-blue-soft: #60a5fa;
+
+  /* Semantic Status Colors */
+  --color-status-emerald: #10b981;
+  --color-status-amber: #f59e0b;
+  --color-status-rose: #f43f5e;
+  --color-status-purple: #8b5cf6;
+
+  /* Surfaces - Light Mode */
+  --color-canvas-light: #ffffff;
+  --color-canvas-soft-light: #f8fafc;
+  --color-hairline-light: #e2e8f0;
+  --color-hairline-strong-light: #cbd5e1;
+  --color-ink-light: #0f172a;
+  --color-ink-secondary-light: #1e293b;
+  --color-ink-mute-light: #64748b;
+
+  /* Surfaces - Dark Mode */
+  --color-canvas-dark: #090d16;
+  --color-canvas-card-dark: #0f172a;
+  --color-hairline-dark: #1e293b;
+  --color-hairline-strong-dark: #334155;
+  --color-ink-dark: #f8fafc;
+  --color-ink-secondary-dark: #e2e8f0;
+  --color-ink-mute-dark: #94a3b8;
+
+  /* Typography Font Stacks */
+  --font-sans: Inter, 'Outfit', system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+
+  /* Border Radii */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* Elevation Shadows */
+  --elevation-0: none;
+  --elevation-1: 0 1px 3px rgba(15, 23, 42, 0.05);
+  --elevation-2: 0 10px 15px -3px rgba(15, 23, 42, 0.1);
+  --elevation-3: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+}
+
+/* Base Utility Classes */
+.font-mono-data {
+  font-family: var(--font-mono);
+}
+
+.tactile-active {
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), background-color 150ms ease, border-color 150ms ease;
+}
+
+.tactile-active:active {
+  transform: scale(0.97);
+}

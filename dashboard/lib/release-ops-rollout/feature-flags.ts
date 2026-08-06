@@ -6,7 +6,7 @@ export interface FeatureFlagsConfig {
   enableRealtimeSubscriptions: boolean;
 }
 
-export function evaluateFeatureFlags(env = process.env): FeatureFlagsConfig {
+export function evaluateFeatureFlags(env: Record<string, string | undefined> = process.env): FeatureFlagsConfig {
   const parseBool = (val: string | undefined, defaultValue: boolean): boolean => {
     if (val === undefined || val === '') return defaultValue;
     return val.toLowerCase() === 'true' || val === '1';
@@ -19,14 +19,14 @@ export function evaluateFeatureFlags(env = process.env): FeatureFlagsConfig {
   };
 }
 
-export function isAppRelayEnabled(env = process.env): boolean {
+export function isAppRelayEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return evaluateFeatureFlags(env).enableAppRelay;
 }
 
-export function isWorkerClaimAllowed(env = process.env): boolean {
+export function isWorkerClaimAllowed(env: Record<string, string | undefined> = process.env): boolean {
   return evaluateFeatureFlags(env).enableWorkerJobClaim;
 }
 
-export function isRealtimeEnabled(env = process.env): boolean {
+export function isRealtimeEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return evaluateFeatureFlags(env).enableRealtimeSubscriptions;
 }

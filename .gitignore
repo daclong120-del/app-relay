@@ -1,0 +1,28 @@
+# Dependencies
+node_modules
+
+# Environment files (secrets)
+.env
+.env.local
+.env.vercel
+!.env.example
+!.env.local.example
+
+# Build output
+.next
+dist
+.turbo
+
+# IDE
+.vscode
+.idea
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Supabase local
+supabase/.temp
+
+# Worker temp workspace
+workers/app-relay-worker/tmp

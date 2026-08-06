@@ -202,7 +202,7 @@ async function runDashboardActionsTests() {
   let passed = 0;
   let failed = 0;
 
-  function assert(condition: boolean, testName: string) {
+  function assert(condition: any, testName: string) {
     if (condition) {
       console.log(`✓ [PASS] ${testName}`);
       passed++;

@@ -1,0 +1,1578 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+
+info:
+  title: AppRelay Frontend API
+  version: 1.0.0
+  summary: Frontend contract for AppRelay inside SinoMedia Release Ops
+  description: |
+    REST contract between the SinoMedia main frontend and the AppRelay control plane.
+
+    AppRelay acquires an application artifact from an official Google Play URL. The
+    control plane creates and tracks `pull_apk` jobs while a detached worker performs
+    the long-running Android/ADB work.
+
+    This specification is intentionally frontend-facing. The browser MUST NOT call
+    `/api/release-ops/worker/v1/*`, Supabase service-role APIs, Storage administration
+    APIs, or queue RPCs directly. The REST implementation should be a thin adapter over
+    the existing AppRelay service/repository layer and preserve all existing job,
+    authorization, audit, artifact, retry, and cancellation behavior.
+
+    Realtime is additive: REST endpoints hydrate the page and provide the polling
+    fallback; Supabase Realtime may then update a single job and its append-only events.
+  contact:
+    name: SinoMedia Release Ops
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+  x-audience: main-frontend
+  x-domain: release-ops/app-relay
+  x-job-type: pull_apk
+  x-worker-capability: app_artifact_acquisition
+  x-source-policy: google_play_only
+  x-internal-worker-api-excluded: /api/release-ops/worker/v1/*
+
+servers:
+  - url: /api/release-ops/app-relay/v1
+    description: Same-origin AppRelay frontend API
+
+tags:
+  - name: Overview
+    description: Summary and operational health for the AppRelay page.
+  - name: Jobs
+    description: Create, list, inspect, cancel, and retry AppRelay jobs.
+  - name: Events
+    description: Read the append-only progress timeline for a job.
+  - name: Artifacts
+    description: Request an authorized download URL or delete an artifact.
+  - name: Workers
+    description: Read AppRelay-capable worker and device readiness.
+
+security:
+  - supabaseBearer: []
+
+x-supabase-realtime:
+  provider: Supabase Realtime
+  mode: postgres_changes
+  purpose: Live enhancement after initial REST hydration
+  subscriptions:
+    - resource: job
+      schema: public
+      table: release_ops_jobs
+      event: UPDATE
+      filterTemplate: id=eq.{jobId}
+      identityField: id
+    - resource: job_events
+      schema: public
+      table: release_ops_job_events
+      event: INSERT
+      filterTemplate: job_id=eq.{jobId}
+      identityField: id
+      ordering: created_at ascending
+  clientRules:
+    - Subscribe only to the opened job ID; never subscribe to all job events.
+    - Deduplicate job events by event ID.
+    - Unsubscribe when the consuming component unmounts or the job ID changes.
+    - On disconnect, use GET /jobs/{jobId} and GET /jobs/{jobId}/events as fallback.
+    - Treat REST responses as authoritative after reconnect or detected sequence gaps.
+  authorization: Apply the same admin/RLS policy as the REST read endpoints.
+
+paths:
+  /overview:
+    get:
+      tags: [Overview]
+      operationId: getAppRelayOverview
+      summary: Get AppRelay operational summary
+      description: |
+        Returns compact metrics for the AppRelay overview page. Values are generated
+        from the existing Release Ops job and worker data; unavailable metrics must be
+        returned as `null`, not fabricated.
+      parameters:
+        - $ref: '#/components/parameters/Window'
+      responses:
+        '200':
+          description: Operational summary
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverviewResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /jobs:
+    get:
+      tags: [Jobs]
+      operationId: listAppRelayJobs
+      summary: List AppRelay jobs
+      description: |
+        Returns only `pull_apk` jobs. Filtering and pagination are performed on the
+        server so the frontend never filters a partial page and presents it as a full
+        result set.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Statuses'
+        - $ref: '#/components/parameters/Stage'
+        - $ref: '#/components/parameters/WorkerId'
+        - $ref: '#/components/parameters/CreatedFrom'
+        - $ref: '#/components/parameters/CreatedTo'
+        - $ref: '#/components/parameters/SortBy'
+        - $ref: '#/components/parameters/SortOrder'
+      responses:
+        '200':
+          description: Paginated jobs
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags: [Jobs]
+      operationId: createAppRelayJob
+      summary: Create an APK acquisition job
+      description: |
+        Validates and canonicalizes an official Google Play details URL, derives the
+        package ID, creates a `pull_apk` job, and writes the audit record. The request
+        returns immediately; Android work never runs inside this HTTP request.
+      security:
+        - supabaseBearer: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateJobRequest'
+            examples:
+              default:
+                value:
+                  playUrl: https://play.google.com/store/apps/details?id=com.example.app&hl=en
+                  locale: en
+                  includeListing: true
+                  includeScreenshots: true
+      responses:
+        '202':
+          description: Job accepted and queued
+          headers:
+            Location:
+              description: Relative URL of the created job.
+              schema:
+                type: string
+                example: /api/release-ops/app-relay/v1/jobs/8b6bbfd8-62da-4c36-a49b-4e99f778f587
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /jobs/{jobId}:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      tags: [Jobs]
+      operationId: getAppRelayJob
+      summary: Get complete AppRelay job detail
+      description: |
+        Returns the job read model plus its assigned worker, artifact, allowed actions,
+        and the newest bounded event page. Use the events endpoint for older pages.
+      responses:
+        '200':
+          description: Complete job detail
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /jobs/{jobId}/events:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      tags: [Events]
+      operationId: listAppRelayJobEvents
+      summary: List append-only events for a job
+      description: |
+        Cursor-paginated timeline endpoint used for initial hydration, older event
+        pages, reconnect recovery, and polling fallback.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/EventLimit'
+        - $ref: '#/components/parameters/EventOrder'
+      responses:
+        '200':
+          description: Event page
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /jobs/{jobId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    post:
+      tags: [Jobs]
+      operationId: cancelAppRelayJob
+      summary: Cancel or request cancellation of a job
+      description: |
+        Queued jobs become cancelled immediately. Claimed or running jobs receive a
+        cancellation request that the assigned worker observes at a safe checkpoint.
+        Cancelling a job does not delete an already completed artifact.
+      security:
+        - supabaseBearer: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionReasonRequest'
+      responses:
+        '202':
+          description: Cancellation applied or requested
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /jobs/{jobId}/retry:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    post:
+      tags: [Jobs]
+      operationId: retryAppRelayJob
+      summary: Retry an eligible failed job
+      description: |
+        Requeues a retryable failed or dead-letter job according to the existing retry
+        and attempt policy. The response returns the authoritative job after the retry
+        operation; the frontend must not assume whether the implementation reuses or
+        replaces the underlying job ID.
+      security:
+        - supabaseBearer: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionReasonRequest'
+      responses:
+        '202':
+          description: Retry accepted
+          headers:
+            Location:
+              description: Relative URL of the authoritative job after retry.
+              schema:
+                type: string
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /jobs/{jobId}/artifact/download-url:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    post:
+      tags: [Artifacts]
+      operationId: createAppRelayArtifactDownloadUrl
+      summary: Create a short-lived artifact download URL
+      description: |
+        Authorizes the current admin, verifies artifact state and expiry, and returns a
+        short-lived URL for direct browser download from private Storage. The API never
+        proxies the ZIP bytes through Vercel.
+      responses:
+        '200':
+          description: Signed download handoff
+          headers:
+            Cache-Control:
+              description: This sensitive response must not be cached.
+              schema:
+                type: string
+                const: no-store
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadUrlResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /jobs/{jobId}/artifact:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    delete:
+      tags: [Artifacts]
+      operationId: deleteAppRelayArtifact
+      summary: Delete the durable artifact
+      description: |
+        Deletes the private Storage object through the existing idempotent service path,
+        updates artifact metadata, and writes an audit record. The frontend never sends
+        a Storage path or object key.
+      security:
+        - supabaseBearer: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionReasonRequest'
+      responses:
+        '200':
+          description: Artifact deleted or already absent
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactDeleteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /workers:
+    get:
+      tags: [Workers]
+      operationId: listAppRelayWorkers
+      summary: List AppRelay-capable workers
+      description: |
+        Returns worker and device health needed by the AppRelay overview and operations
+        views. This is a read model only; the frontend cannot register or heartbeat a
+        worker through this API.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/WorkerStatuses'
+      responses:
+        '200':
+          description: Paginated AppRelay workers
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /workers/{workerId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+    get:
+      tags: [Workers]
+      operationId: getAppRelayWorker
+      summary: Get worker and device readiness detail
+      responses:
+        '200':
+          description: Worker detail
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    supabaseBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Supabase access token for an authenticated admin. A same-origin Next.js BFF may
+        resolve the equivalent Supabase SSR session cookie before invoking the existing
+        `requireAdmin()` guard.
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: Required for user-triggered state-changing operations.
+
+  headers:
+    RequestId:
+      description: Correlation ID generated or accepted by the control plane.
+      schema:
+        type: string
+        format: uuid
+
+  parameters:
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      description: AppRelay job UUID.
+      schema:
+        type: string
+        format: uuid
+
+    WorkerIdPath:
+      name: workerId
+      in: path
+      required: true
+      description: Registered worker UUID.
+      schema:
+        type: string
+        format: uuid
+
+    Page:
+      name: page
+      in: query
+      description: One-based page number.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    PageSize:
+      name: pageSize
+      in: query
+      description: Number of resources per page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+
+    Search:
+      name: search
+      in: query
+      description: Case-insensitive search by package ID or job ID.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+
+    Statuses:
+      name: status
+      in: query
+      description: Repeat this parameter to filter by one or more job statuses.
+      style: form
+      explode: true
+      schema:
+        type: array
+        maxItems: 12
+        items:
+          $ref: '#/components/schemas/JobStatus'
+
+    WorkerStatuses:
+      name: status
+      in: query
+      description: Repeat this parameter to filter by worker status.
+      style: form
+      explode: true
+      schema:
+        type: array
+        items:
+          $ref: '#/components/schemas/WorkerStatus'
+
+    Stage:
+      name: stage
+      in: query
+      schema:
+        $ref: '#/components/schemas/JobStage'
+
+    WorkerId:
+      name: workerId
+      in: query
+      schema:
+        type: string
+        format: uuid
+
+    CreatedFrom:
+      name: createdFrom
+      in: query
+      description: Inclusive UTC lower bound.
+      schema:
+        type: string
+        format: date-time
+
+    CreatedTo:
+      name: createdTo
+      in: query
+      description: Inclusive UTC upper bound.
+      schema:
+        type: string
+        format: date-time
+
+    SortBy:
+      name: sortBy
+      in: query
+      schema:
+        type: string
+        enum: [createdAt, updatedAt, status, progress]
+        default: createdAt
+
+    SortOrder:
+      name: sortOrder
+      in: query
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: desc
+
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor returned by the preceding event page.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+
+    EventLimit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 100
+
+    EventOrder:
+      name: order
+      in: query
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: asc
+
+    Window:
+      name: window
+      in: query
+      description: Aggregation window for overview metrics.
+      schema:
+        type: string
+        enum: [1h, 24h, 7d, 30d]
+        default: 24h
+
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Stable key for a single user intent. Repeating the same operation with the same
+        key must not create a second job or duplicate a mutation.
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+      example: 01986c13-7df0-7549-90bc-c7bf77bd27a6
+
+  responses:
+    BadRequest:
+      description: Malformed request, unsupported query, or invalid Google Play URL.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalidPlayUrl:
+              value:
+                error:
+                  code: INVALID_PLAY_URL
+                  message: Only official Google Play details URLs are accepted.
+                  requestId: 85f89d7c-ad76-490f-b8ec-08d5af6fbca1
+                  retryable: false
+
+    Unauthorized:
+      description: Missing or invalid authenticated session.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            unauthenticated:
+              value:
+                error:
+                  code: UNAUTHENTICATED
+                  message: Authentication is required.
+                  requestId: 85f89d7c-ad76-490f-b8ec-08d5af6fbca1
+                  retryable: false
+
+    Forbidden:
+      description: Authenticated user is not authorized as a Release Ops admin.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Requested AppRelay job, artifact, or worker does not exist.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Conflict:
+      description: Current resource state does not allow the requested operation.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalidState:
+              value:
+                error:
+                  code: INVALID_JOB_STATE
+                  message: The requested action is not allowed for the current job state.
+                  requestId: 85f89d7c-ad76-490f-b8ec-08d5af6fbca1
+                  retryable: false
+
+    Gone:
+      description: Artifact existed but is expired or deleted.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            artifactExpired:
+              value:
+                error:
+                  code: ARTIFACT_EXPIRED
+                  message: The artifact is no longer available for download.
+                  requestId: 85f89d7c-ad76-490f-b8ec-08d5af6fbca1
+                  retryable: false
+
+    UnprocessableEntity:
+      description: Request shape is valid but violates a domain rule.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    TooManyRequests:
+      description: Rate or queue admission limit exceeded.
+      headers:
+        Retry-After:
+          description: Seconds before retrying.
+          schema:
+            type: integer
+            minimum: 1
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    InternalServerError:
+      description: Unexpected control-plane failure. No secret or internal stack is returned.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    JobStatus:
+      type: string
+      enum:
+        - queued
+        - claimed
+        - running
+        - retrying
+        - succeeded
+        - failed
+        - dead_letter
+        - cancelled
+        - expired
+
+    JobStage:
+      type: string
+      enum:
+        - queued
+        - claiming
+        - scraping
+        - preparing
+        - installing
+        - pulling
+        - validating
+        - packaging
+        - uploading
+        - cleaning
+        - completed
+        - failed
+        - cancelled
+
+    JobEventLevel:
+      type: string
+      enum: [debug, info, warning, error]
+
+    WorkerStatus:
+      type: string
+      enum: [online, busy, degraded, maintenance, offline]
+
+    ArtifactStatus:
+      type: string
+      enum: [ready, expired, deleted, unavailable]
+
+    AllowedAction:
+      type: string
+      enum: [cancel, retry, download, delete_artifact]
+
+    ProvenanceSource:
+      type: string
+      enum:
+        - google_play
+        - supabase_database
+        - supabase_realtime
+        - worker_live
+        - artifact_storage
+        - manual_action
+
+    AppRelayErrorCode:
+      type: string
+      description: Stable API and AppRelay domain error code.
+      enum:
+        - VALIDATION_ERROR
+        - INVALID_PLAY_URL
+        - UNAUTHENTICATED
+        - FORBIDDEN
+        - CSRF_INVALID
+        - JOB_NOT_FOUND
+        - WORKER_NOT_FOUND
+        - ARTIFACT_NOT_FOUND
+        - ARTIFACT_EXPIRED
+        - INVALID_JOB_STATE
+        - IDEMPOTENCY_CONFLICT
+        - QUEUE_LIMIT_REACHED
+        - RATE_LIMITED
+        - APP_NOT_FOUND
+        - UNSUPPORTED_REGION
+        - PLAY_LOGIN_REQUIRED
+        - PAYMENT_OR_APPROVAL_REQUIRED
+        - LISTING_PARSE_FAILED
+        - DEVICE_UNAVAILABLE
+        - EMULATOR_BOOT_TIMEOUT
+        - PLAY_UI_CHANGED
+        - INSTALL_TIMEOUT
+        - APK_PATHS_MISSING
+        - APK_PULL_FAILED
+        - APK_VALIDATION_FAILED
+        - ARTIFACT_UPLOAD_FAILED
+        - STALE_JOB_LEASE
+        - CANCELLED
+        - INSUFFICIENT_DISK
+        - INTERNAL_ERROR
+
+    SourcePolicy:
+      type: string
+      const: google_play_only
+
+    CreateJobRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - playUrl
+      properties:
+        playUrl:
+          type: string
+          format: uri
+          maxLength: 2048
+          pattern: '^https://play\.google\.com/store/apps/details\?'
+          description: Official Google Play details URL. The server validates exact host and path.
+        locale:
+          type: string
+          minLength: 2
+          maxLength: 35
+          pattern: '^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$'
+          default: en
+        includeListing:
+          type: boolean
+          default: true
+        includeScreenshots:
+          type: boolean
+          default: true
+        requestedDeviceProfile:
+          oneOf:
+            - $ref: '#/components/schemas/RequestedDeviceProfile'
+            - type: 'null'
+          default: null
+
+    RequestedDeviceProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        sdk:
+          type: integer
+          minimum: 21
+          maximum: 100
+        abi:
+          type: string
+          maxLength: 64
+        density:
+          type: integer
+          minimum: 72
+          maximum: 1000
+        locale:
+          type: string
+          maxLength: 35
+
+    ActionReasonRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+        reference:
+          type: string
+          maxLength: 200
+          description: Optional ticket, incident, or change reference.
+
+    JobPayload:
+      type: object
+      additionalProperties: false
+      required:
+        - schemaVersion
+        - playUrl
+        - packageId
+        - locale
+        - includeListing
+        - includeScreenshots
+        - sourcePolicy
+      properties:
+        schemaVersion:
+          type: integer
+          const: 1
+        playUrl:
+          type: string
+          format: uri
+        packageId:
+          type: string
+          pattern: '^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$'
+        locale:
+          type: string
+        includeListing:
+          type: boolean
+        includeScreenshots:
+          type: boolean
+        sourcePolicy:
+          $ref: '#/components/schemas/SourcePolicy'
+        requestedDeviceProfile:
+          oneOf:
+            - $ref: '#/components/schemas/RequestedDeviceProfile'
+            - type: 'null'
+
+    DeviceProfile:
+      type: object
+      additionalProperties: false
+      required: [sdk, abi, density, locale]
+      properties:
+        deviceId:
+          type: string
+          maxLength: 200
+        sdk:
+          type: integer
+          minimum: 1
+        abi:
+          type: string
+        density:
+          type: integer
+          minimum: 1
+        locale:
+          type: string
+        playReady:
+          type: boolean
+        adbReady:
+          type: boolean
+        freeDiskBytes:
+          type: integer
+          minimum: 0
+
+    JobResult:
+      type: object
+      additionalProperties: false
+      required:
+        - schemaVersion
+        - versionName
+        - versionCode
+        - splitCount
+        - screenshotCount
+        - archiveArtifactId
+        - archiveSha256
+        - archiveSizeBytes
+        - deviceProfile
+        - warnings
+      properties:
+        schemaVersion:
+          type: integer
+          const: 1
+        versionName:
+          type: string
+        versionCode:
+          type: integer
+          minimum: 1
+        baseSizeBytes:
+          type: integer
+          minimum: 0
+        splitCount:
+          type: integer
+          minimum: 0
+        screenshotCount:
+          type: integer
+          minimum: 0
+        archiveArtifactId:
+          type: string
+          format: uuid
+        archiveSha256:
+          type: string
+          pattern: '^[a-fA-F0-9]{64}$'
+        archiveSizeBytes:
+          type: integer
+          minimum: 1
+        deviceProfile:
+          $ref: '#/components/schemas/DeviceProfile'
+        warnings:
+          type: array
+          items:
+            type: string
+
+    JobError:
+      type: object
+      additionalProperties: false
+      required: [code, message, retryable]
+      properties:
+        code:
+          $ref: '#/components/schemas/AppRelayErrorCode'
+        message:
+          type: string
+        retryable:
+          type: boolean
+        operatorGuidance:
+          type: string
+
+    Job:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - jobType
+        - status
+        - stage
+        - progress
+        - payload
+        - attemptCount
+        - maxAttempts
+        - cancellationRequested
+        - allowedActions
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        jobType:
+          type: string
+          const: pull_apk
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        stage:
+          $ref: '#/components/schemas/JobStage'
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        payload:
+          $ref: '#/components/schemas/JobPayload'
+        result:
+          oneOf:
+            - $ref: '#/components/schemas/JobResult'
+            - type: 'null'
+        error:
+          oneOf:
+            - $ref: '#/components/schemas/JobError'
+            - type: 'null'
+        appId:
+          type: [string, 'null']
+          format: uuid
+        workerId:
+          type: [string, 'null']
+          format: uuid
+        attemptCount:
+          type: integer
+          minimum: 0
+        maxAttempts:
+          type: integer
+          minimum: 1
+        cancellationRequested:
+          type: boolean
+        allowedActions:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/AllowedAction'
+        leaseUntil:
+          type: [string, 'null']
+          format: date-time
+        heartbeatAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: [string, 'null']
+          format: date-time
+        finishedAt:
+          type: [string, 'null']
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    JobEvent:
+      type: object
+      additionalProperties: false
+      required: [id, jobId, level, stage, message, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        jobId:
+          type: string
+          format: uuid
+        level:
+          $ref: '#/components/schemas/JobEventLevel'
+        stage:
+          $ref: '#/components/schemas/JobStage'
+        message:
+          type: string
+          maxLength: 2000
+        progress:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 100
+        metadata:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+
+    Artifact:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - jobId
+        - artifactType
+        - status
+        - fileName
+        - contentType
+        - checksumSha256
+        - sizeBytes
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        jobId:
+          type: string
+          format: uuid
+        appId:
+          type: [string, 'null']
+          format: uuid
+        artifactType:
+          type: string
+          const: apk_split_archive
+        status:
+          $ref: '#/components/schemas/ArtifactStatus'
+        fileName:
+          type: string
+        contentType:
+          type: string
+          const: application/zip
+        checksumSha256:
+          type: string
+          pattern: '^[a-fA-F0-9]{64}$'
+        sizeBytes:
+          type: integer
+          minimum: 1
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+        deletedAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+      description: Storage object path is intentionally not exposed to the frontend.
+
+    Worker:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - status
+        - version
+        - capabilities
+        - maxParallelJobs
+        - availableSlots
+        - lastHeartbeatAt
+        - devices
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          $ref: '#/components/schemas/WorkerStatus'
+        version:
+          type: string
+        capabilities:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+          contains:
+            const: app_artifact_acquisition
+        maxParallelJobs:
+          type: integer
+          minimum: 1
+        availableSlots:
+          type: integer
+          minimum: 0
+        currentJobId:
+          type: [string, 'null']
+          format: uuid
+        lastHeartbeatAt:
+          type: string
+          format: date-time
+        devices:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceProfile'
+
+    Provenance:
+      type: object
+      additionalProperties: false
+      required: [source, observedAt]
+      properties:
+        source:
+          $ref: '#/components/schemas/ProvenanceSource'
+        observedAt:
+          type: string
+          format: date-time
+        freshnessSeconds:
+          type: integer
+          minimum: 0
+
+    MetricValue:
+      type: object
+      additionalProperties: false
+      required: [value, provenance]
+      properties:
+        value:
+          type: [number, 'null']
+        unit:
+          type: string
+          enum: [count, percent, seconds, bytes]
+        provenance:
+          $ref: '#/components/schemas/Provenance'
+
+    Overview:
+      type: object
+      additionalProperties: false
+      required:
+        - window
+        - queuedJobs
+        - runningJobs
+        - succeededJobs
+        - failedJobs
+        - successRate
+        - onlineWorkers
+        - availableDeviceSlots
+        - generatedAt
+      properties:
+        window:
+          type: string
+          enum: [1h, 24h, 7d, 30d]
+        queuedJobs:
+          $ref: '#/components/schemas/MetricValue'
+        runningJobs:
+          $ref: '#/components/schemas/MetricValue'
+        succeededJobs:
+          $ref: '#/components/schemas/MetricValue'
+        failedJobs:
+          $ref: '#/components/schemas/MetricValue'
+        successRate:
+          $ref: '#/components/schemas/MetricValue'
+        onlineWorkers:
+          $ref: '#/components/schemas/MetricValue'
+        availableDeviceSlots:
+          $ref: '#/components/schemas/MetricValue'
+        latestWorkerHeartbeatAt:
+          type: [string, 'null']
+          format: date-time
+        generatedAt:
+          type: string
+          format: date-time
+
+    PageMeta:
+      type: object
+      additionalProperties: false
+      required: [page, pageSize, totalCount, totalPages]
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+        totalCount:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+
+    CursorMeta:
+      type: object
+      additionalProperties: false
+      required: [hasMore]
+      properties:
+        nextCursor:
+          type: [string, 'null']
+        hasMore:
+          type: boolean
+
+    OverviewResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Overview'
+
+    JobResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [job]
+          properties:
+            job:
+              $ref: '#/components/schemas/Job'
+
+    JobListResponse:
+      type: object
+      additionalProperties: false
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Job'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    JobDetailResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [job, events, eventPage]
+          properties:
+            job:
+              $ref: '#/components/schemas/Job'
+            worker:
+              oneOf:
+                - $ref: '#/components/schemas/Worker'
+                - type: 'null'
+            artifact:
+              oneOf:
+                - $ref: '#/components/schemas/Artifact'
+                - type: 'null'
+            events:
+              type: array
+              items:
+                $ref: '#/components/schemas/JobEvent'
+            eventPage:
+              $ref: '#/components/schemas/CursorMeta'
+
+    EventListResponse:
+      type: object
+      additionalProperties: false
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobEvent'
+        meta:
+          $ref: '#/components/schemas/CursorMeta'
+
+    DownloadUrlResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [artifactId, downloadUrl, expiresAt, fileName]
+          properties:
+            artifactId:
+              type: string
+              format: uuid
+            downloadUrl:
+              type: string
+              format: uri
+              description: Sensitive short-lived URL. Do not log or persist it.
+            expiresAt:
+              type: string
+              format: date-time
+            fileName:
+              type: string
+
+    ArtifactDeleteResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [jobId, artifactId, status, deletedAt]
+          properties:
+            jobId:
+              type: string
+              format: uuid
+            artifactId:
+              type: string
+              format: uuid
+            status:
+              type: string
+              const: deleted
+            deletedAt:
+              type: string
+              format: date-time
+
+    WorkerListResponse:
+      type: object
+      additionalProperties: false
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Worker'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    WorkerResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [worker]
+          properties:
+            worker:
+              $ref: '#/components/schemas/Worker'
+
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      properties:
+        field:
+          type: string
+        issue:
+          type: string
+        value:
+          description: Rejected value when safe to return.
+
+    ErrorObject:
+      type: object
+      additionalProperties: false
+      required: [code, message, requestId, retryable]
+      properties:
+        code:
+          $ref: '#/components/schemas/AppRelayErrorCode'
+        message:
+          type: string
+        requestId:
+          type: string
+          format: uuid
+        retryable:
+          type: boolean
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorDetail'
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorObject'
