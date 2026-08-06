@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  app-relay-dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: app-relay-dashboard
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL:-https://mock.supabase.co}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-mock-anon-key}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-mock-service-key}
+
+  app-relay-worker:
+    build:
+      context: ./workers/app-relay-worker
+      dockerfile: Dockerfile
+    container_name: app-relay-worker
+    restart: unless-stopped
+    environment:
+      - WORKER_NAME=app-relay-worker-01
+      - GATEWAY_URL=http://app-relay-dashboard:3000/api/app-relay/v1
+      - WORKER_TOKEN=${WORKER_TOKEN:-dev-worker-token-secret-key}
+      - MAX_PARALLEL_JOBS=1
+      - POLL_INTERVAL_MS=5000
+    depends_on:
+      - app-relay-dashboard
