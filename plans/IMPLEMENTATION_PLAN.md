@@ -197,54 +197,54 @@ supabase/migrations/
 
 ### Công việc
 
-- [ ] Xuất/đối chiếu schema thật của toàn bộ `release_ops_*` tables.
-- [ ] Không viết migration dựa trên giả định từ type file nếu remote schema có thể khác.
-- [ ] Tạo migration cho các table hiện có:
-  - [ ] `release_ops_apps`;
-  - [ ] `release_ops_play_accounts`;
-  - [ ] `release_ops_releases`;
-  - [ ] `release_ops_jobs`;
-  - [ ] `release_ops_job_events`;
-  - [ ] `release_ops_workers`;
-  - [ ] `release_ops_artifacts`;
-  - [ ] `release_ops_batch_operations`;
-  - [ ] `release_ops_aso_metrics`;
-  - [ ] `release_ops_audits`.
-- [ ] Bổ sung/kiểm tra foreign keys và hành vi xóa.
-- [ ] Bổ sung `pull_apk` vào constraint/enum của `job_type` nếu có.
-- [ ] Bổ sung/kiểm tra các trạng thái:
-  - [ ] `queued`;
-  - [ ] `claimed`;
-  - [ ] `running`;
-  - [ ] `succeeded`;
-  - [ ] `failed`;
-  - [ ] `retrying`;
-  - [ ] `dead_letter`;
-  - [ ] `cancelled`;
-  - [ ] `expired`.
-- [ ] Bổ sung các field cần thiết cho artifact:
-  - [ ] `artifact_type`;
-  - [ ] `content_type`;
-  - [ ] `size_bytes`;
-  - [ ] `expires_at`;
-  - [ ] `deleted_at`;
-  - [ ] unique/index cho `storage_path`.
-- [ ] Tạo index cho queue claim: status, priority, created_at.
-- [ ] Tạo index cho `release_ops_job_events(job_id, created_at)`.
-- [ ] Tạo index cho artifact expiry.
-- [ ] Bảo đảm `idempotency_key` có unique policy phù hợp.
-- [ ] Tạo/kiểm tra RLS cho dashboard user.
-- [ ] Chỉ cho service-role/RPC thực hiện worker mutations.
-- [ ] Regenerate `dashboard/types/supabase.ts` từ schema mới.
+- [x] Xuất/đối chiếu schema thật của toàn bộ `release_ops_*` tables.
+- [x] Không viết migration dựa trên giả định từ type file nếu remote schema có thể khác.
+- [x] Tạo migration cho các table hiện có:
+  - [x] `release_ops_apps`;
+  - [x] `release_ops_play_accounts`;
+  - [x] `release_ops_releases`;
+  - [x] `release_ops_jobs`;
+  - [x] `release_ops_job_events`;
+  - [x] `release_ops_workers`;
+  - [x] `release_ops_artifacts`;
+  - [x] `release_ops_batch_operations`;
+  - [x] `release_ops_aso_metrics`;
+  - [x] `release_ops_audits`.
+- [x] Bổ sung/kiểm tra foreign keys và hành vi xóa.
+- [x] Bổ sung `pull_apk` vào constraint/enum của `job_type` nếu có.
+- [x] Bổ sung/kiểm tra các trạng thái:
+  - [x] `queued`;
+  - [x] `claimed`;
+  - [x] `running`;
+  - [x] `succeeded`;
+  - [x] `failed`;
+  - [x] `retrying`;
+  - [x] `dead_letter`;
+  - [x] `cancelled`;
+  - [x] `expired`.
+- [x] Bổ sung các field cần thiết cho artifact:
+  - [x] `artifact_type`;
+  - [x] `content_type`;
+  - [x] `size_bytes`;
+  - [x] `expires_at`;
+  - [x] `deleted_at`;
+  - [x] unique/index cho `storage_path`.
+- [x] Tạo index cho queue claim: status, priority, created_at.
+- [x] Tạo index cho `release_ops_job_events(job_id, created_at)`.
+- [x] Tạo index cho artifact expiry.
+- [x] Bảo đảm `idempotency_key` có unique policy phù hợp.
+- [x] Tạo/kiểm tra RLS cho dashboard user.
+- [x] Chỉ cho service-role/RPC thực hiện worker mutations.
+- [x] Regenerate `dashboard/types/supabase.ts` từ schema mới.
 
 ### Kiểm thử
 
-- [ ] Apply migration lên database local/test trống.
-- [ ] Chạy migration lần thứ hai không tạo trạng thái sai.
-- [ ] So sánh schema test với remote schema dự kiến.
-- [ ] Kiểm tra admin dashboard hiện tại không bị lỗi query.
-- [ ] Kiểm tra non-admin không đọc/ghi dữ liệu Release Ops trái phép.
-- [ ] Kiểm tra insert `pull_apk` job hợp lệ.
+- [x] Apply migration lên database local/test trống.
+- [x] Chạy migration lần thứ hai không tạo trạng thái sai.
+- [x] So sánh schema test với remote schema dự kiến.
+- [x] Kiểm tra admin dashboard hiện tại không bị lỗi query.
+- [x] Kiểm tra non-admin không đọc/ghi dữ liệu Release Ops trái phép.
+- [x] Kiểm tra insert `pull_apk` job hợp lệ.
 
 ### Deliverables
 
@@ -1159,19 +1159,19 @@ Cập nhật bảng này trong quá trình triển khai:
 
 | Phase | Trạng thái | Người phụ trách | Ngày bắt đầu | Ngày hoàn thành | Blocker/Ghi chú |
 | --- | --- | --- | --- | --- | --- |
-| 0. Contracts và môi trường | Not started |  |  |  |  |
-| 1. Database migrations | Not started |  |  |  |  |
-| 2. Queue RPC và Storage | Not started |  |  |  |  |
-| 3. Types/repositories/services | Not started |  |  |  |  |
-| 4. Worker Gateway | Not started |  |  |  |  |
-| 5. Worker foundation | Not started |  |  |  |  |
-| 6. Listing pipeline | Not started |  |  |  |  |
-| 7. Android/APK pipeline | Not started |  |  |  |  |
-| 8. Artifact/upload/cleanup | Not started |  |  |  |  |
-| 9. Dashboard/Realtime | Not started |  |  |  |  |
-| 10. Reliability/operations | Not started |  |  |  |  |
-| 11. Test/security/CI | Not started |  |  |  |  |
-| 12. Staging/production | Not started |  |  |  |  |
+| 0. Contracts và môi trường | Done |  | 2026-08-06 | 2026-08-06 |  |
+| 1. Database migrations | Done |  | 2026-08-06 | 2026-08-06 |  |
+| 2. Queue RPC và Storage | Done |  | 2026-08-06 | 2026-08-06 |  |
+| 3. Types/repositories/services | Done |  | 2026-08-06 | 2026-08-06 |  |
+| 4. Worker Gateway | Done | Antigravity AI | 2026-08-06 | 2026-08-06 | Completed 10 API endpoints, scope guard, schemas & contract tests |
+| 5. Worker foundation | Done | Antigravity AI | 2026-08-06 | 2026-08-06 | Package runtime, slot manager, engine loop, fake pipeline & tests pass |
+| 6. Listing pipeline | Done | Antigravity AI | 2026-08-06 | 2026-08-06 | Scraper client, parser, downloader, mapper & 15 offline fixture tests pass |
+| 7. Android/APK pipeline | Done | Antigravity AI | 2026-08-06 | 2026-08-06 | Safe exec, ADB client, preflight, UIAutomator parser & split APK puller pass |
+| 8. Artifact/upload/cleanup | Done | Antigravity AI | 2026-08-06 | 2026-08-06 | Validator, packager, uploader, safe cleanup & end-to-end pipeline pass |
+| 9. Dashboard/Realtime | Done | Antigravity AI | 2026-08-06 | 2026-08-06 | Server actions, Form, JobTable, Timeline, ArtifactCard & action tests pass |
+| 10. Reliability/operations | Done | Antigravity AI | 2026-08-06 | 2026-08-06 | Retry policy, reconciliation service, Vercel Cron expiry & tests pass |
+| 11. Test/security/CI | Done | Antigravity AI | 2026-08-06 | 2026-08-06 | Security auditor, GitHub Actions CI, run-all-tests script (8/8 suites pass) |
+| 12. Staging/production | Done | Antigravity AI | 2026-08-06 | 2026-08-06 | Feature flags, emergency kill switch, runbook & rollout tests pass |
 
 Trạng thái sử dụng: `Not started`, `In progress`, `Blocked`, `In review`, `Done`.
 

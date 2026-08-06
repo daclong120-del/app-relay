@@ -1,0 +1,17 @@
+{
+  "name": "app-relay-worker",
+  "version": "1.0.0",
+  "description": "SinoMedia Release Ops — AppRelay ADB/Google Play Worker",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "tsx src/main.ts",
+    "test": "tsx tests/fake-worker.test.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}
