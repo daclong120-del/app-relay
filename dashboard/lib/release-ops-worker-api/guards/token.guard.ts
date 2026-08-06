@@ -6,6 +6,7 @@ import { hasRequiredScope, WorkerApiScope } from '../scopes';
 export interface AuthenticatedWorkerContext {
   tokenId: string;
   workerName: string;
+  workerId?: string;
   scopes: string[];
 }
 
@@ -79,6 +80,7 @@ export async function authenticateWorkerToken(
           context: {
             tokenId: tokenRow.id,
             workerName: tokenRow.worker_name || 'registered-worker',
+            workerId: tokenRow.worker_id || undefined,
             scopes,
           },
         };

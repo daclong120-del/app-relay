@@ -1,9 +1,9 @@
 # APK Acquisition Backend — SinoMedia Release Ops Integration Architecture
 
-> Document status: **Target / To-be architecture**  
+> Document status: **Target / To-be architecture & Current Implementation**  
 > Integration target: **SinoMedia `release-ops` control plane**  
-> Source grounding: `ARCHITECTURE_MASTER.md` and `pull-from-play (2).md` supplied by the user.  
-> Implementation status: the SinoMedia Release Ops dashboard/data layer exists; the Release Ops Worker Gateway, worker runtime, artifact repository, job-event repository, Realtime wiring, and APK acquisition capability are not yet implemented according to the supplied master document.
+> Source grounding: `ARCHITECTURE_MASTER.md` and `APPRELAY_CORRECTED_REVIEW_AND_FIX_PLAN.md`.  
+> **ADR (2026-08-06): System Naming Evolution** — The feature is canonicalized as **AppRelay** (`app-relay`), with worker package `workers/app-relay-worker` and dashboard route `/dash/release-ops/app-relay`. `pull_apk` remains the stable machine-readable job type contract, requiring capability `app_artifact_acquisition`. Modular Next.js server actions (`app-relay.actions.ts`) with `requireAdmin()` and `verifyCSRF()` are standard.  
 
 ## Table of Contents
 

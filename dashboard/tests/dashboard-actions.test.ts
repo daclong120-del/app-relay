@@ -276,6 +276,19 @@ async function runDashboardActionsTests() {
   assert(res8.success === true && res8.data === true, 'Marks artifact as deleted');
   assert(db.artifacts.get(artId).deleted_at !== null, 'deleted_at timestamp set');
 
+  // 9. Test Non-Admin Role Security Rejection
+  const res9 = await createAppRelayJobAction(db as any, { playUrl: 'https://play.google.com/store/apps/details?id=com.sinomedia.app' }, {
+    session: { userId: 'user-123', role: 'user' },
+  });
+  assert(res9.success === false && res9.error?.includes('FORBIDDEN'), 'Rejects non-admin user with FORBIDDEN');
+
+  // 10. Test Invalid CSRF Token Security Rejection
+  const res10 = await createAppRelayJobAction(db as any, { playUrl: 'https://play.google.com/store/apps/details?id=com.sinomedia.app' }, {
+    session: { userId: 'admin-123', role: 'admin' },
+    csrfToken: 'wrong-csrf-token',
+  });
+  assert(res10.success === false && res10.error?.includes('CSRF_VALIDATION_FAILED'), 'Rejects invalid CSRF token');
+
   console.log(`\nTEST SUMMARY: ${passed} Passed, ${failed} Failed.`);
   if (failed > 0) {
     process.exit(1);

@@ -1,0 +1,65 @@
+📂 BẢN ĐỒ TÀI LIỆU TRONG THƯ MỤC DOCS
+│
+├── 🎯 TẦNG 1: TIẾP NHẬN & THU THẬP YÊU CẦU (Xác định LÀM CÁI GÌ & CHO AI)
+│   ├── 📄 BRD (Business Requirements Document - Yêu cầu nghiệp vụ vĩ mô từ khách hàng)
+│   ├── 📄 SRS / PRD (Software Requirements/Product Document - Đặc tả danh sách tính năng chi tiết)
+│   │   ├── 📑 Actor Profile (Tài liệu con: Định nghĩa các Tác nhân hệ thống)
+│   │   └── 📑 Use Case Specification (Tài liệu con: Đặc tả kịch bản sử dụng, luồng đi của user)
+│   └── 📄 Meeting Minutes / User Notes (Biên bản họp chốt yêu cầu, ghi chép khảo sát)
+│
+├── 🎨 TẦNG 2A: QUY CHUẨN MỸ THUẬT & TRẢI NGHIỆM (Nền tảng Thị giác & Linh hồn dự án)
+│   ├── 📄 Brand Guidelines (Quy chuẩn thương hiệu: Định vị logo, màu sắc đại diện công ty)
+│   ├── 📄 UI Style Guide / Design System (Hệ thống thiết kế: Quy tắc phối màu, font chữ, quy chuẩn nút bấm)
+│   └── 📄 Art Bible / Art Specification (Sách hướng dẫn mỹ thuật: Áp dụng riêng cho Game/3D/Animation)
+│
+├── 🛠️ TẦNG 2B: QUY CHUẨN KHỞI NGUYÊN KỸ THUẬT (Kho vũ khí cốt lõi của công ty - Xác định CÔNG NGHỆ GÌ)
+│   ├── 📄 Architecture Baseline (Kiến trúc nền tảng có sẵn cho từng ngách: Web/Game/Tool/App)
+│   ├── 📄 Tech Stack Blueprint (Quy định framework, database, thư viện được phép dùng)
+│   ├── 📄 Coding & Testing Standards (Quy chuẩn viết code và tiêu chuẩn viết Unit Test của Dev)
+│   └── 📄 Open Source Compliance / License Log (Tài liệu tuân thủ bản quyền mã nguồn mở)
+│
+├── 📐 TẦNG 3: QUY HOẠCH VÀ PHÁC THẢO (Bản đồ quy hoạch vĩ mô)
+│   ├── 📘 Master Architecture Document / SAD (Tài liệu Tổng thể / Tài liệu Mẹ quản lý các dự án con)
+│   └── 📐 Sketch / Technical RFC (Bản phác thảo thô, đề xuất hướng đi kỹ thuật để team phản biện)
+│
+├── 📦 TẦNG 4: THIẾT KẾ CHI TIẾT THÀNH PHẦN (Phục vụ trực tiếp cho việc thực thi code & cắt giao diện)
+│   ├── 🎨 UI/UX Deliverables (Sản phẩm của Designer bàn giao cho Dev nhìn vào code)
+│   │   ├── 📑 Wireframes (Bản phác thảo cấu trúc bố cục giao diện trắng đen)
+│   │   ├── 📑 High-Fidelity Mockups (Bản thiết kế giao diện màu sắc hoàn chỉnh trực quan)
+│   │   └── 📑 Interactive Prototype (Bản mẫu giao diện có thể bấm tương tác chuyển trang thử)
+│   │
+│   └── 📘 CDD / LLD (Component Design Document - Thiết kế chi tiết cho từng Module Backend/Frontend riêng biệt)
+│       ├── 📑 Functional Module Design (Tài liệu con: Thiết kế cấu trúc các Module chức năng bên trong code)
+│       ├── 📑 api_spec / API Contract (Tài liệu con: Định nghĩa các endpoint, dữ liệu request/response)
+│       ├── 📑 Data Models / DB Schema (Tài liệu con: Cấu trúc bảng dữ liệu, sơ đồ mối quan hệ ERD)
+│       ├── 📑 Business Logic Spec / Flowchart (Tài liệu con: Sơ đồ thuật toán xử lý logic nghiệp vụ)
+│       ├── 📑 CI/CD Pipeline Spec & IaC (Tài liệu con: Cấu hình hạ tầng tự động Cloud/Server/Automation Build)
+│       └── 📑 AI Model Card & Data Lineage (Tài liệu con: Nếu dự án đặc thù có dùng AI, Big Data)
+│
+├── 🛡️ TẦNG 5: AN TOÀN VÀ BẢO MẬT (Lá chắn pháp lý và kỹ thuật cho hệ thống)
+│   └── 📄 Security & Compliance Document (Đặc tả chính sách bảo mật, mã hóa dữ liệu, tuân thủ chuẩn PCI-DSS/GDPR)
+│
+├── 🧪 TẦNG 6: LẬP KẾ HOẠCH & KỊCH BẢN KIỂM THỬ (Đội QA/Tester đảm bảo chất lượng phần mềm)
+│   ├── 📄 Test Plan (Kế hoạch kiểm thử: Tiến độ, phạm vi test, tiêu chí đạt/lỗi, môi trường test)
+│   └── 📄 Test Case Specification (Tài liệu Kịch bản kiểm thử: Đầu vào, các bước bấm, kết quả mong đợi)
+│       ├── 📑 Manual Test Cases (Kịch bản test bằng tay cho từng tính năng)
+│       └── 📑 Automation Test Scripts (Kịch bản/Mã nguồn code test tự động nếu có)
+│
+├── 🤝 TẦNG 7: NGHIỆM THU & BÀN GIAO (Để dự án được khách hàng ký duyệt và nhận tiền)
+│   ├── 📄 UAT Test Scripts & Sign-off (Kịch bản kiểm thử nghiệm thu của khách hàng & biên bản ký duyệt)
+│   ├── 📄 End-User Manual / User Guide (Tài liệu hướng dẫn sử dụng phần mềm cho khách hàng/vận hành)
+│   └── 📄 Handover Document (Biên bản bàn giao mã nguồn và tài sản dự án)
+│
+├── 🚀 TẦNG 8: VẬN HÀNH, NÂNG CẤP VÀ BIẾN ĐỘNG (Khi hệ thống đã chạy thật trên môi trường Production)
+│   ├── 📄 As-Is Documentation (Tài liệu hiện trạng: Hệ thống thực tế lúc này đang chạy thế nào)
+│   ├── 📄 To-Be Documentation V2 (ARCHITECTURE_V2.md)
+│   ├── 📄 To-Be Documentation V3 (ARCHITECTURE_V3.md - Đặc tả V3 mới nhất)
+│   ├── 📄 ADR (Architecture Decision Record - Nhật ký ghi lại lý do lập trình viên thay đổi công nghệ)
+│   └── 📄 CR (Change Request - Tài liệu khách hàng yêu cầu sửa đổi/thêm tính năng mới ngoài phạm vi ban đầu)
+│
+├── 🚑 TẦNG 9: BẢO TRÌ & CỨU HỘ (Dành cho đội vận hành DevOps/SRE và Dev trực chiến cứu sập)
+│   ├── 📄 Runbook / Playbook (Sách hướng dẫn deploy, các lệnh khẩn cấp restart server khi lỗi)
+│   └── 📄 Post-Mortem / RCA (Tài liệu mổ xẻ nguyên nhân và cách khắc phục sau khi hệ thống bị sập)
+│
+└── 📴 TẦNG 10: KHAI TỬ (Kết thúc một vòng đời phần mềm)
+    └── 📄 Deprecation Plan / Sunsetting Doc (Kế hoạch tắt server, chuyển dịch dữ liệu khỏi module cũ)

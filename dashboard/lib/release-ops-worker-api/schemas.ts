@@ -4,6 +4,7 @@ export interface RegisterWorkerInput {
   workerName: string;
   maxParallelJobs?: number;
   metadata?: Record<string, unknown>;
+  workerId?: string;
 }
 
 export interface WorkerHeartbeatInput {
@@ -77,6 +78,7 @@ export function validateRegisterWorker(body: any): RegisterWorkerInput {
     workerName: body.workerName.trim(),
     maxParallelJobs: body.maxParallelJobs ?? 1,
     metadata: body.metadata && typeof body.metadata === 'object' ? body.metadata : {},
+    workerId: typeof body.workerId === 'string' && body.workerId.trim() ? body.workerId.trim() : undefined,
   };
 }
 

@@ -9,6 +9,7 @@ export async function handleRegisterWorker(db: any, body: any) {
     p_worker_name: input.workerName,
     p_max_parallel_jobs: input.maxParallelJobs,
     p_metadata: input.metadata,
+    p_worker_id: input.workerId || null,
   });
 
   if (error) {

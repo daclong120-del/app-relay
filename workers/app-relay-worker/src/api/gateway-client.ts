@@ -36,6 +36,7 @@ export class GatewayClient {
 
   async registerWorker(metadata?: Record<string, unknown>): Promise<{ worker: any }> {
     return this.request<{ worker: any }>('workers/register', {
+      workerId: this.config.workerId,
       workerName: this.config.workerName,
       maxParallelJobs: this.config.maxParallelJobs,
       metadata: {

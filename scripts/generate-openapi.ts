@@ -1,0 +1,5 @@
+import { execSync } from 'child_process';
+import path from 'path';
+
+const dashboardDir = path.resolve(__dirname, '../dashboard');
+execSync('npm run openapi:generate', { cwd: dashboardDir, stdio: 'inherit' });

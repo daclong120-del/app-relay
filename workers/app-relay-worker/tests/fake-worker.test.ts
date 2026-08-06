@@ -1,5 +1,7 @@
 // Integration Test Suite for AppRelay Worker Foundation (Phase 5)
 
+process.env.USE_FAKE_PIPELINE = 'true';
+
 import { WorkerApiRouter } from '../../../dashboard/lib/release-ops-worker-api/router';
 import { GatewayClient } from '../src/api/gateway-client';
 import { loadWorkerConfig } from '../src/config/env';

@@ -55,22 +55,22 @@ export class WorkerApiRouter {
       requiredScope = WORKER_SCOPES.WORKER_REGISTER;
       handler = (db, body) => handleRegisterWorker(db, body);
     } else if (pathStr === 'workers/heartbeat') {
-      requiredScope = WORKER_SCOPES.WORKER_READ;
+      requiredScope = WORKER_SCOPES.WORKER_HEARTBEAT;
       handler = (db, body) => handleWorkerHeartbeat(db, body);
     } else if (pathStr === 'jobs/claim') {
       requiredScope = WORKER_SCOPES.JOB_CLAIM;
       handler = (db, body) => handleClaimJob(db, body);
     } else if (pathSegments.length === 3 && pathSegments[0] === 'jobs' && pathSegments[2] === 'start') {
       const jobId = pathSegments[1];
-      requiredScope = WORKER_SCOPES.JOB_WRITE;
+      requiredScope = WORKER_SCOPES.JOB_HEARTBEAT;
       handler = (db, body) => handleStartJob(db, jobId, body);
     } else if (pathSegments.length === 3 && pathSegments[0] === 'jobs' && pathSegments[2] === 'heartbeat') {
       const jobId = pathSegments[1];
-      requiredScope = WORKER_SCOPES.JOB_WRITE;
+      requiredScope = WORKER_SCOPES.JOB_HEARTBEAT;
       handler = (db, body) => handleJobHeartbeat(db, jobId, body);
     } else if (pathSegments.length === 3 && pathSegments[0] === 'jobs' && pathSegments[2] === 'events') {
       const jobId = pathSegments[1];
-      requiredScope = WORKER_SCOPES.JOB_WRITE;
+      requiredScope = WORKER_SCOPES.JOB_EVENT;
       handler = (db, body) => handleAppendJobEvent(db, jobId, body);
     } else if (pathSegments.length === 4 && pathSegments[0] === 'jobs' && pathSegments[2] === 'artifacts' && pathSegments[3] === 'upload-init') {
       const jobId = pathSegments[1];
@@ -82,11 +82,11 @@ export class WorkerApiRouter {
       handler = (db, body) => handleUploadComplete(db, jobId, body);
     } else if (pathSegments.length === 3 && pathSegments[0] === 'jobs' && pathSegments[2] === 'succeed') {
       const jobId = pathSegments[1];
-      requiredScope = WORKER_SCOPES.JOB_WRITE;
+      requiredScope = WORKER_SCOPES.JOB_COMPLETE;
       handler = (db, body) => handleSucceedJob(db, jobId, body);
     } else if (pathSegments.length === 3 && pathSegments[0] === 'jobs' && pathSegments[2] === 'fail') {
       const jobId = pathSegments[1];
-      requiredScope = WORKER_SCOPES.JOB_WRITE;
+      requiredScope = WORKER_SCOPES.JOB_COMPLETE;
       handler = (db, body) => handleFailJob(db, jobId, body);
     } else {
       return notFound(`Worker API endpoint NOT_FOUND: /${pathStr}`, requestId);

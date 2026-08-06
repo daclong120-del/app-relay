@@ -49,6 +49,7 @@ export interface PullApkJobPayloadV1 {
   includeListing?: boolean;
   includeScreenshots?: boolean;
   sourcePolicy?: 'google_play_only';
+  requestedDeviceProfile?: AppRelayDeviceProfile | null;
 }
 
 export interface PullApkJobResultV1 {

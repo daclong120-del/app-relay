@@ -1,5 +1,9 @@
 // Release Ops Service Layer — AppRelay & Job Management
 
+if (typeof window !== 'undefined') {
+  throw new Error('SERVER_ONLY_MODULE: Service layer cannot be loaded in browser environment.');
+}
+
 import { ReleaseOpsArtifactRepository } from '../repositories/release-ops-artifact.repo';
 import { ReleaseOpsAuditRepository } from '../repositories/release-ops-audit.repo';
 import { ReleaseOpsJobEventRepository } from '../repositories/release-ops-job-event.repo';

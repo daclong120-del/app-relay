@@ -3,7 +3,7 @@
 import { GatewayClient } from '../api/gateway-client';
 import { WorkerConfig } from '../config/env';
 import { DeviceSlotManager } from '../domain/slot-manager';
-import { runFakePullApkPipeline } from '../pipeline/fake-pull-apk';
+import { runApkAcquisitionPipeline } from '../pipeline/apk-acquisition-pipeline';
 
 export class WorkerEngine {
   private client: GatewayClient;
@@ -21,6 +21,11 @@ export class WorkerEngine {
 
   async start(): Promise<void> {
     if (this.isRunning) return;
+
+    if (process.env.USE_FAKE_PIPELINE === 'true' && process.env.NODE_ENV === 'production') {
+      throw new Error('FATAL_SECURITY_ERROR: USE_FAKE_PIPELINE cannot be enabled in production environment.');
+    }
+
     this.isRunning = true;
 
     console.log(`[WorkerEngine] Starting worker "${this.config.workerName}" (version ${this.config.workerVersion})`);
@@ -118,16 +123,34 @@ export class WorkerEngine {
 
       // 3. Dispatch according to jobType
       const packageId = job.payload?.packageId || 'com.example.app';
-      console.log(`[WorkerEngine] Running pipeline for package ${packageId}...`);
+      console.log(`[WorkerEngine] Dispatching job ${job.id} (${job.jobType}) for package ${packageId}...`);
 
-      const result = await runFakePullApkPipeline({
-        jobId: job.id,
-        workerId: this.workerId,
-        packageId,
-        client: this.client,
-        isCancelled: () => isCancelled,
-        stepDelayMs: 300,
-      });
+      let result: Record<string, unknown>;
+
+      if (job.jobType === 'pull_apk') {
+        if (process.env.USE_FAKE_PIPELINE === 'true') {
+          console.log('[WorkerEngine] USE_FAKE_PIPELINE enabled. Running fake pipeline harness.');
+          const { runFakePullApkPipeline } = await import('../pipeline/fake-pull-apk');
+          result = await runFakePullApkPipeline({
+            jobId: job.id,
+            workerId: this.workerId,
+            packageId,
+            client: this.client,
+            isCancelled: () => isCancelled,
+            stepDelayMs: 300,
+          });
+        } else {
+          result = await runApkAcquisitionPipeline({
+            job,
+            workerId: this.workerId,
+            config: this.config,
+            client: this.client,
+            isCancelled: () => isCancelled,
+          });
+        }
+      } else {
+        throw new Error(`UNSUPPORTED_JOB_TYPE: Job type "${job.jobType}" is not supported.`);
+      }
 
       // 4. Complete job
       await this.client.succeedJob(job.id, this.workerId, result);

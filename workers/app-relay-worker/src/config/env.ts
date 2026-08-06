@@ -1,6 +1,7 @@
 // Environment Configuration & Runtime Options
 
 export interface WorkerConfig {
+  workerId?: string;
   workerName: string;
   gatewayUrl: string;
   workerToken: string;
@@ -14,6 +15,7 @@ export interface WorkerConfig {
 }
 
 export function loadWorkerConfig(): WorkerConfig {
+  const workerId = process.env.WORKER_ID;
   const workerName = process.env.WORKER_NAME || `worker-${Math.random().toString(36).substring(2, 7)}`;
   const gatewayUrl = (process.env.GATEWAY_URL || 'http://localhost:3000/api/release-ops/worker/v1').replace(/\/$/, '');
   const workerToken = process.env.WORKER_TOKEN || 'dev-worker-token-secret-key';
@@ -24,6 +26,7 @@ export function loadWorkerConfig(): WorkerConfig {
   const jobHeartbeatIntervalMs = Math.max(3000, parseInt(process.env.JOB_HEARTBEAT_INTERVAL_MS || '10000', 10));
 
   return {
+    workerId,
     workerName,
     gatewayUrl,
     workerToken,
