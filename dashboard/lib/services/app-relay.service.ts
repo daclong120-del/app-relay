@@ -215,6 +215,11 @@ export class AppRelayService {
         .createSignedUrl(artifact.storagePath, expiresInSeconds);
 
       if (error) {
+        if (error.message?.includes('not found') || error.message?.includes('Object not found')) {
+          // File not yet uploaded to storage (e.g. fake pipeline or upload still in progress)
+          downloadUrl = `pending://${artifact.storagePath}`;
+          return { downloadUrl, expiresAt };
+        }
         throw new Error(`Failed to generate signed download URL: ${error.message}`);
       }
       downloadUrl = data.signedUrl;
