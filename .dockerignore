@@ -10,3 +10,9 @@ tmp
 workspace
 .env*
 .antigravityignore
+.gitnexus
+.claude
+.github
+new_setup
+artifacts
+work

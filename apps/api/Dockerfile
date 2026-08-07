@@ -1,8 +1,16 @@
-FROM node:20-alpine AS builder
+# Node 22, not 20: @supabase/supabase-js >= 2.112 reaches for a native
+# WebSocket at createClient() time and throws "Node.js detected but native
+# WebSocket not found" on Node 20, so the API crash-loops on boot.
+FROM node:22-alpine AS builder
+
+# Pinned deliberately. `corepack enable` resolves pnpm's `latest` dist-tag,
+# which is now pnpm 11 — that requires the `node:sqlite` builtin and crashes on
+# Node 20. This version also matches pnpm-lock.yaml's lockfileVersion 9.0.
+ARG PNPM_VERSION=9.15.9
 
 WORKDIR /app
 
-RUN corepack enable
+RUN npm install -g "pnpm@${PNPM_VERSION}"
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/contracts/package.json ./packages/contracts/
@@ -15,7 +23,7 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @app-relay/contracts build
 RUN pnpm --filter api build
 
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production

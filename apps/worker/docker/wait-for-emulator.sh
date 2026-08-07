@@ -2,7 +2,7 @@
 set -e
 
 ADB="${ADB_PATH:-adb}"
-BOOT_TIMEOUT="${EMULATOR_BOOT_TIMEOUT:-360}"
+BOOT_TIMEOUT="${EMULATOR_BOOT_TIMEOUT:-600}"
 ELAPSED=0
 
 echo "[Emulator] Waiting for emulator to complete boot (timeout: ${BOOT_TIMEOUT}s)..."

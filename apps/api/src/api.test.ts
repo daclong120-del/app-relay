@@ -8,9 +8,38 @@ process.env.API_TOKEN = process.env.API_TOKEN || 'apr_live_test_token';
 process.env.WORKER_TOKEN = process.env.WORKER_TOKEN || 'worker_live_test_token';
 process.env.DOWNLOAD_SIGNING_SECRET = process.env.DOWNLOAD_SIGNING_SECRET || 'test_download_signing_secret_key';
 
-import { formatAppResponse, formatJobResponse, formatArtifactResponse, formatJobEventResponse, formatEventResponse } from './utils/formatters.js';
+import { formatAppResponse, formatJobResponse, formatArtifactResponse, formatJobEventResponse } from './utils/formatters.js';
 import { isValidPackageId, PACKAGE_ID_REGEX } from './utils/validation.js';
-import { sanitizePostgrestFilter } from './utils/postgrest.js';
+import { escapePostgrestValue, ilikeContains } from './utils/postgrest.js';
+import { requireEnv } from './utils/env.js';
+
+describe('requireEnv', () => {
+  it('returns the value when the variable is set', () => {
+    process.env.APP_RELAY_TEST_VAR = 'some-value';
+    try {
+      assert.strictEqual(requireEnv('APP_RELAY_TEST_VAR'), 'some-value');
+    } finally {
+      delete process.env.APP_RELAY_TEST_VAR;
+    }
+  });
+
+  it('throws instead of falling back to an insecure default', () => {
+    delete process.env.APP_RELAY_MISSING_VAR;
+    assert.throws(
+      () => requireEnv('APP_RELAY_MISSING_VAR'),
+      /APP_RELAY_MISSING_VAR environment variable is required/
+    );
+  });
+
+  it('rejects an empty string so a blank env var cannot pass as configured', () => {
+    process.env.APP_RELAY_BLANK_VAR = '';
+    try {
+      assert.throws(() => requireEnv('APP_RELAY_BLANK_VAR'), /required/);
+    } finally {
+      delete process.env.APP_RELAY_BLANK_VAR;
+    }
+  });
+});
 
 describe('API Response Formatters & Security Tests', () => {
   it('formatJobResponse strips internal fields and formats camelCase', () => {
@@ -190,25 +219,38 @@ describe('PackageId Validation Tests', () => {
 });
 
 describe('PostgREST Filter Sanitization Tests', () => {
-  it('escapes special characters for safe PostgREST filter queries', () => {
-    const input = 'test%search_with"quotes\\and_dots';
-    const sanitized = sanitizePostgrestFilter(input);
-
-    assert.strictEqual(sanitized.includes('%'), false || sanitized.includes('\\%'));
-    assert.strictEqual(sanitized.includes('_'), false || sanitized.includes('\\_'));
-    assert.strictEqual(sanitized, 'test\\%search\\_with\\"quotes\\\\and\\_dots');
+  it('escapes ILIKE metacharacters so they survive PostgREST unquoting as literals', () => {
+    // `%` -> `\%` (ILIKE escape) -> `\\%` (PostgREST quoted-string escape).
+    // PostgREST unquotes `\\` to `\`, leaving SQL `\%` = a literal percent sign.
+    assert.strictEqual(escapePostgrestValue('100%'), '100\\\\%');
+    assert.strictEqual(escapePostgrestValue('my_app'), 'my\\\\_app');
   });
 
-  it('safely handles inputs with commas, quotes, and filter injection payloads', () => {
-    const inputComma = 'Facemoji, Inc';
-    const sanitizedComma = sanitizePostgrestFilter(inputComma);
-    const filterComma = `title.ilike."%${sanitizedComma}%",package_id.ilike."%${sanitizedComma}%"`;
-    assert.strictEqual(filterComma, 'title.ilike."%Facemoji, Inc%",package_id.ilike."%Facemoji, Inc%"');
+  it('escapes backslashes and double quotes for the quoted-string syntax', () => {
+    assert.strictEqual(escapePostgrestValue('a"b'), 'a\\"b');
+    assert.strictEqual(escapePostgrestValue('a\\b'), 'a\\\\b');
+  });
 
-    const inputInjection = 'zzz,description.ilike.*abc*';
-    const sanitizedInjection = sanitizePostgrestFilter(inputInjection);
-    const filterInjection = `title.ilike."%${sanitizedInjection}%",package_id.ilike."%${sanitizedInjection}%"`;
-    assert.strictEqual(filterInjection, 'title.ilike."%zzz,description.ilike.*abc*%",package_id.ilike."%zzz,description.ilike.*abc*%"');
+  it('keeps a plain comma inside the quoted value instead of splitting the filter', () => {
+    const filter = ilikeContains('title', 'Facemoji, Inc');
+    assert.strictEqual(filter, 'title.ilike."%Facemoji, Inc%"');
+  });
+
+  it('contains an injection payload inside the quotes rather than adding an OR branch', () => {
+    const filter = ilikeContains('title', 'zzz,description.ilike.*abc*');
+    assert.strictEqual(filter, 'title.ilike."%zzz,description.ilike.*abc*%"');
+
+    // A quote-breakout attempt stays escaped, so it cannot terminate the value early.
+    const escaped = escapePostgrestValue('x",package.eq.y,"');
+    assert.ok(
+      !/(^|[^\\])"/.test(escaped),
+      `expected every double quote to be backslash-escaped, got: ${escaped}`
+    );
+  });
+
+  it('leaves the surrounding wildcards outside the escaped value', () => {
+    assert.ok(ilikeContains('package_id', 'com.example').startsWith('package_id.ilike."%'));
+    assert.ok(ilikeContains('package_id', 'com.example').endsWith('%"'));
   });
 });
 

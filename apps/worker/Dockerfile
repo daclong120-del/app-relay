@@ -1,5 +1,10 @@
 FROM eclipse-temurin:17-jdk-jammy
 
+# Pinned deliberately. `corepack enable` resolves pnpm's `latest` dist-tag,
+# which is now pnpm 11 — that requires the `node:sqlite` builtin and crashes on
+# Node 20. This version also matches pnpm-lock.yaml's lockfileVersion 9.0.
+ARG PNPM_VERSION=9.15.9
+
 ENV ANDROID_SDK_ROOT=/opt/android-sdk
 ENV ANDROID_HOME=/opt/android-sdk
 ENV ANDROID_AVD_HOME=/home/worker/.android/avd
@@ -13,6 +18,9 @@ RUN useradd -m -s /bin/bash -u 1000 worker && \
     chown -R worker:worker /home/worker
 
 # 1. Install OS dependencies, Node.js, pnpm, Xvfb, noVNC, supervisor
+#    The lib* packages are the shared objects the Android Emulator (Qt/QEMU)
+#    dynamically links against. Missing libnss3 / libasound2 / libegl1 makes the
+#    emulator binary fail to start before it prints anything useful.
 RUN apt-get update && apt-get install -y \
     curl \
     unzip \
@@ -23,15 +31,37 @@ RUN apt-get update && apt-get install -y \
     x11vnc \
     novnc \
     websockify \
-    libpulse0 \
-    libgl1-mesa-glx \
     libvirt-clients \
     cpu-checker \
     net-tools \
     procps \
+    libnss3 \
+    libnspr4 \
+    libasound2 \
+    libpulse0 \
+    libdbus-1-3 \
+    libfontconfig1 \
+    libfreetype6 \
+    libxkbcommon0 \
+    libxcb1 \
+    libx11-6 \
+    libxext6 \
+    libxi6 \
+    libxtst6 \
+    libxrandr2 \
+    libxcursor1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxcomposite1 \
+    libgl1-mesa-glx \
+    libgl1-mesa-dri \
+    libglu1-mesa \
+    libegl1 \
+    libgles2 \
+    libgbm1 \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
-    && corepack enable \
+    && npm install -g "pnpm@${PNPM_VERSION}" \
     && ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html \
     && rm -rf /var/lib/apt/lists/*
 
@@ -50,6 +80,33 @@ RUN yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses --s
         "emulator" \
         "platforms;android-35" \
         "system-images;android-35;google_apis_playstore;x86_64"
+
+# 3b. Verify the toolchain at build time rather than discovering a missing
+#     binary or shared library after a 30-minute image build.
+#
+#     Only java/adb/avdmanager are hard failures. The emulator resolves part of
+#     its bundled Qt stack through LD_LIBRARY_PATH at launch, so `ldd` on the
+#     launcher legitimately reports some "not found" entries — those are logged
+#     for diagnosis but must not fail the build. What we do assert is that the
+#     qemu binary loads, since that is where a missing libnss3 / libasound2 /
+#     libEGL actually surfaces.
+RUN set -eux; \
+    java -version; \
+    adb --version; \
+    avdmanager list device > /dev/null; \
+    # Assert the SYSTEM libraries the emulator dlopen's are present. Checking
+    # ldd output instead would false-positive: the emulator ships its own Qt6,
+    # protobuf and abseil in emulator/lib64 and resolves them at launch via
+    # LD_LIBRARY_PATH, so they legitimately read as "not found" here.
+    for lib in libnss3.so libasound.so.2 libEGL.so.1 libGLESv2.so.2 libgbm.so.1 \
+               libxcb.so.1 libX11.so.6 libpulse.so.0 libdbus-1.so.3 \
+               libfontconfig.so.1 libXdamage.so.1 libXcomposite.so.1; do \
+        ldconfig -p | grep -q "$lib" || { echo "FATAL: missing system library $lib" >&2; exit 1; }; \
+    done; \
+    echo "--- all required system libraries present ---"; \
+    # Informational only: resolves against the bundled libs the launcher uses.
+    LD_LIBRARY_PATH="${ANDROID_SDK_ROOT}/emulator/lib64:${ANDROID_SDK_ROOT}/emulator/lib64/qt/lib:${ANDROID_SDK_ROOT}/emulator/lib64/gles_swiftshader" \
+        ldd "${ANDROID_SDK_ROOT}/emulator/qemu/linux-x86_64/qemu-system-x86_64" | grep "not found" || true
 
 WORKDIR /app
 

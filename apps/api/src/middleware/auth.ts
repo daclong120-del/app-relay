@@ -1,24 +1,21 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
+import { requireEnv } from '../utils/env.js';
 
-const API_TOKEN = process.env.API_TOKEN;
-if (!API_TOKEN) {
-  throw new Error('API_TOKEN environment variable is required');
-}
+const API_TOKEN = requireEnv('API_TOKEN');
+const WORKER_TOKEN = requireEnv('WORKER_TOKEN');
 
-const WORKER_TOKEN = process.env.WORKER_TOKEN;
-if (!WORKER_TOKEN) {
-  throw new Error('WORKER_TOKEN environment variable is required');
-}
-
+/**
+ * Constant-time token comparison.
+ *
+ * Both sides are hashed first so the compared buffers are always 32 bytes —
+ * this keeps the comparison constant-time regardless of the supplied token's
+ * length, which a raw length check would otherwise leak.
+ */
 function safeCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) {
-    crypto.timingSafeEqual(bufA, bufA);
-    return false;
-  }
-  return crypto.timingSafeEqual(bufA, bufB);
+  const digestA = crypto.createHash('sha256').update(a).digest();
+  const digestB = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(digestA, digestB);
 }
 
 export function requirePublicAuth(req: Request, res: Response, next: NextFunction) {

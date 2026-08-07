@@ -4,7 +4,7 @@ import { supabase } from '../../database/supabase.js';
 import { requirePublicAuth } from '../../middleware/auth.js';
 import { formatAppResponse } from '../../utils/formatters.js';
 import { isValidPackageId } from '../../utils/validation.js';
-import { sanitizePostgrestFilter } from '../../utils/postgrest.js';
+import { ilikeContains } from '../../utils/postgrest.js';
 
 const router = Router();
 
@@ -15,8 +15,9 @@ router.get('/', requirePublicAuth, async (req: Request, res: Response) => {
     let dbQuery = supabase.from('apps').select('*', { count: 'exact' });
 
     if (query.search) {
-      const sanitized = sanitizePostgrestFilter(query.search);
-      dbQuery = dbQuery.or(`title.ilike."%${sanitized}%",package_id.ilike."%${sanitized}%"`);
+      dbQuery = dbQuery.or(
+        [ilikeContains('title', query.search), ilikeContains('package_id', query.search)].join(','),
+      );
     }
 
     const from = (query.page - 1) * query.pageSize;

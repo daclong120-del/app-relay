@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { createHash } from 'crypto';
+import { Transform } from 'stream';
+import { pipeline } from 'stream/promises';
 import {
   ClaimJobRequestSchema,
   JobHeartbeatRequestSchema,
@@ -113,21 +115,32 @@ router.put('/:jobId/artifact', requireWorkerAuth, async (req: Request, res: Resp
     }
 
     const localFilePath = path.join(jobSubDir, 'bundle.zip');
-    const writeStream = fs.createWriteStream(localFilePath);
     const hash = createHash('sha256');
-
     let sizeBytes = 0;
 
-    await new Promise<void>((resolve, reject) => {
-      req.on('data', (chunk: Buffer) => {
+    // Hash and measure the body as it streams straight to disk, so a multi-hundred
+    // MB bundle never has to be buffered in memory.
+    const meter = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
         sizeBytes += chunk.length;
         hash.update(chunk);
-      });
-      req.pipe(writeStream);
-      writeStream.on('finish', () => resolve());
-      writeStream.on('error', (err) => reject(err));
-      req.on('error', (err) => reject(err));
+        callback(null, chunk);
+      },
     });
+
+    // pipeline() destroys every stream and rejects if the worker aborts mid-upload,
+    // instead of leaving the request hanging on a 'finish' event that never fires.
+    try {
+      await pipeline(req, meter, fs.createWriteStream(localFilePath));
+    } catch (streamErr: any) {
+      await fs.promises.rm(localFilePath, { force: true }).catch(() => {});
+      return res.status(400).json({
+        error: {
+          code: 'UPLOAD_INCOMPLETE',
+          message: `Artifact upload failed or was aborted: ${streamErr.message}`,
+        },
+      });
+    }
 
     const calculatedSha256 = hash.digest('hex');
 

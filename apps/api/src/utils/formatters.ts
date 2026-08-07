@@ -82,7 +82,3 @@ export function formatJobEventResponse(event: any) {
   };
 }
 
-export function formatEventResponse(event: any) {
-  return formatJobEventResponse(event);
-}
-
