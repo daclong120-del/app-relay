@@ -68,6 +68,7 @@ export interface PullApkJobResultV1 {
 
 export interface AppRelayArtifact {
   id: string;
+  tenantId?: string | null;
   releaseId?: string | null;
   jobId?: string | null;
   appId?: string | null;
@@ -96,6 +97,7 @@ export interface AppRelayJobEvent {
 
 export interface ReleaseOpsJobItem {
   id: string;
+  tenantId?: string | null;
   jobType: ReleaseOpsJobType;
   status: ReleaseOpsJobStatus;
   priority: number;

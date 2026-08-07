@@ -84,13 +84,12 @@ async function ensureHeadlessEmulator(avdName = 'chpay', serial = 'emulator-5554
   } catch {}
 
   if (!isAlreadyOnline) {
-    console.log(`  🚀 Device not online. Auto-spawning AVD "${avdName}" in HEADLESS mode (-no-window)...`);
+    // HEADLESS=false => mở emulator có GUI. Mặc định vẫn là headless.
+    const isHeadless = (process.env.HEADLESS || '').trim().toLowerCase() !== 'false';
+    console.log(`  🚀 Device not online. Auto-spawning AVD "${avdName}" in ${isHeadless ? 'HEADLESS (-no-window)' : 'GUI'} mode...`);
     const emulatorArgs = [
       '-avd', avdName,
-      '-no-window',
-      '-no-audio',
-      '-no-boot-anim',
-      '-gpu', 'off',
+      ...(isHeadless ? ['-no-window', '-no-audio', '-no-boot-anim', '-gpu', 'off'] : []),
       '-no-snapshot-save',
       '-netdelay', 'none',
       '-netspeed', 'full',

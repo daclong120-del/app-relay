@@ -4,7 +4,9 @@ if (typeof window !== 'undefined') {
   throw new Error('SERVER_ONLY_MODULE: Service layer cannot be loaded in browser environment.');
 }
 
-import { AppRelayService, parseAndValidatePlayUrl } from './app-relay.service';
+import { internalScope } from '../app-relay-api/context';
+import { getInternalTenantId } from '../app-relay-api/tenants';
+import { AppRelayActor, AppRelayService, parseAndValidatePlayUrl } from './app-relay.service';
 import {
   AppRelayJobDetail,
   ReleaseOpsJobItem,
@@ -12,24 +14,38 @@ import {
 
 export { parseAndValidatePlayUrl };
 
+/**
+ * These helpers run on the internal (dashboard) surface, so they read across
+ * tenants and stamp new work with the internal tenant.
+ */
+async function internalService(db: any, actor: AppRelayActor): Promise<AppRelayService> {
+  const tenantId = await getInternalTenantId(db);
+  return new AppRelayService(db, internalScope(tenantId), actor);
+}
+
 export async function createApkPullJobService(
   db: any,
   input: {
     playUrl: string;
-    userId?: string;
+    actor: AppRelayActor;
     includeListing?: boolean;
     includeScreenshots?: boolean;
   }
 ): Promise<ReleaseOpsJobItem> {
-  const service = new AppRelayService(db);
-  return service.createApkPullJob(input);
+  const service = await internalService(db, input.actor);
+  return service.createApkPullJob({
+    playUrl: input.playUrl,
+    includeListing: input.includeListing,
+    includeScreenshots: input.includeScreenshots,
+  });
 }
 
 export async function getApkPullJobDetailService(
   db: any,
-  jobId: string
+  jobId: string,
+  actor: AppRelayActor
 ): Promise<AppRelayJobDetail | null> {
-  const service = new AppRelayService(db);
+  const service = await internalService(db, actor);
   try {
     return await service.getJobDetail(jobId);
   } catch (err: any) {
@@ -41,11 +57,11 @@ export async function getApkPullJobDetailService(
 export async function cancelJobService(
   db: any,
   jobId: string,
-  userId?: string
+  actor: AppRelayActor
 ): Promise<boolean> {
-  const service = new AppRelayService(db);
+  const service = await internalService(db, actor);
   try {
-    return await service.cancelJob(jobId, userId);
+    return await service.cancelJob(jobId);
   } catch (err: any) {
     if (err.code === 'JOB_STATE_CONFLICT') return false;
     throw err;
@@ -55,11 +71,11 @@ export async function cancelJobService(
 export async function retryJobService(
   db: any,
   jobId: string,
-  userId?: string
+  actor: AppRelayActor
 ): Promise<boolean> {
-  const service = new AppRelayService(db);
+  const service = await internalService(db, actor);
   try {
-    return await service.retryJob(jobId, userId);
+    return await service.retryJob(jobId);
   } catch (err: any) {
     if (err.code === 'JOB_STATE_CONFLICT') return false;
     throw err;

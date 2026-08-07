@@ -57,6 +57,8 @@ export async function runApkAcquisitionPipeline(
       avdName: config.avdName,
       emulatorPath: config.emulatorPath,
       bootTimeoutMs: config.bootTimeoutMs,
+      headless: config.headless,
+      gpuMode: config.emulatorGpuMode,
       adbClient: adb,
       isCancelled,
     });

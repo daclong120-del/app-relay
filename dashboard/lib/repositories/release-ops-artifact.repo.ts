@@ -1,11 +1,13 @@
 // Repository for release_ops_artifacts
 
+import { applyTenantFilter, TenantScope } from '../app-relay-api/context';
 import { AppRelayArtifact } from '../../types/release-ops';
 
 export class ReleaseOpsArtifactRepository {
   constructor(private db: any) {}
 
   async create(data: {
+    tenantId: string;
     releaseId?: string | null;
     jobId?: string | null;
     appId?: string | null;
@@ -21,6 +23,7 @@ export class ReleaseOpsArtifactRepository {
     const { data: row, error } = await this.db
       .from('release_ops_artifacts')
       .insert({
+        tenant_id: data.tenantId,
         release_id: data.releaseId ?? null,
         job_id: data.jobId ?? null,
         app_id: data.appId ?? null,
@@ -40,23 +43,25 @@ export class ReleaseOpsArtifactRepository {
     return this.mapRow(row);
   }
 
-  async findById(id: string): Promise<AppRelayArtifact | null> {
-    const { data: row, error } = await this.db
-      .from('release_ops_artifacts')
-      .select('*')
-      .eq('id', id)
-      .single();
+  async findById(id: string, scope: TenantScope): Promise<AppRelayArtifact | null> {
+    let query = this.db.from('release_ops_artifacts').select('*').eq('id', id);
+    query = applyTenantFilter(query, scope);
+
+    const { data: row, error } = await query.maybeSingle();
 
     if (error || !row) return null;
     return this.mapRow(row);
   }
 
-  async findByJobId(jobId: string): Promise<AppRelayArtifact | null> {
-    const { data: row, error } = await this.db
+  async findByJobId(jobId: string, scope: TenantScope): Promise<AppRelayArtifact | null> {
+    let query = this.db
       .from('release_ops_artifacts')
       .select('*')
       .eq('job_id', jobId)
-      .is('deleted_at', null)
+      .is('deleted_at', null);
+    query = applyTenantFilter(query, scope);
+
+    const { data: row, error } = await query
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -65,11 +70,14 @@ export class ReleaseOpsArtifactRepository {
     return this.mapRow(row);
   }
 
-  async markDeleted(id: string): Promise<boolean> {
-    const { error } = await this.db
+  async markDeleted(id: string, scope: TenantScope): Promise<boolean> {
+    let query = this.db
       .from('release_ops_artifacts')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', id);
+    query = applyTenantFilter(query, scope);
+
+    const { error } = await query;
 
     return !error;
   }
@@ -77,6 +85,7 @@ export class ReleaseOpsArtifactRepository {
   private mapRow(row: any): AppRelayArtifact {
     return {
       id: row.id,
+      tenantId: row.tenant_id ?? null,
       releaseId: row.release_id,
       jobId: row.job_id,
       appId: row.app_id,

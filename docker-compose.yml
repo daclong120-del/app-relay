@@ -1,5 +1,9 @@
 version: '3.8'
 
+# Every credential below is required. There are no mock defaults: a missing
+# value makes the service refuse to start instead of quietly running against a
+# fake database or a shared token.
+
 services:
   app-relay-dashboard:
     build:
@@ -11,9 +15,15 @@ services:
       - "3001:3000"
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL:-https://mock.supabase.co}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-mock-anon-key}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-mock-service-key}
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL:?set NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:?set NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:?set SUPABASE_SERVICE_ROLE_KEY}
+      # Token the worker presents to /api/release-ops/worker/v1.
+      - RELEASE_OPS_WORKER_TOKEN=${RELEASE_OPS_WORKER_TOKEN:?set RELEASE_OPS_WORKER_TOKEN}
+      # Comma-separated browser origins allowed to call the partner API.
+      # Leave unset for same-origin only.
+      - APPRELAY_ALLOWED_ORIGINS=${APPRELAY_ALLOWED_ORIGINS:-}
+      - APPRELAY_ADMIN_EMAILS=${APPRELAY_ADMIN_EMAILS:-}
 
   app-relay-worker:
     build:
@@ -22,11 +32,14 @@ services:
     container_name: app-relay-worker
     restart: unless-stopped
     environment:
-      - WORKER_NAME=app-relay-worker-01
-      - GATEWAY_URL=http://app-relay-dashboard:3000/api/internal/worker/v1
-      - WORKER_TOKEN=${WORKER_TOKEN:-dev-worker-token-secret-key}
-      - USE_FAKE_PIPELINE=true
-      - MAX_PARALLEL_JOBS=1
-      - POLL_INTERVAL_MS=5000
+      - WORKER_NAME=${WORKER_NAME:-app-relay-worker-01}
+      # Must match the dashboard route; /api/internal/worker/v1 does not exist.
+      - GATEWAY_URL=${GATEWAY_URL:-http://app-relay-dashboard:3000/api/release-ops/worker/v1}
+      - WORKER_TOKEN=${RELEASE_OPS_WORKER_TOKEN:?set RELEASE_OPS_WORKER_TOKEN}
+      - MAX_PARALLEL_JOBS=${MAX_PARALLEL_JOBS:-1}
+      - POLL_INTERVAL_MS=${POLL_INTERVAL_MS:-5000}
+      # Opt-in only. Leaving this on means the worker reports fabricated
+      # artifacts instead of pulling real APKs.
+      - USE_FAKE_PIPELINE=${USE_FAKE_PIPELINE:-false}
     depends_on:
       - app-relay-dashboard

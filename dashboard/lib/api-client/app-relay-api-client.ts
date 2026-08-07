@@ -32,7 +32,11 @@ export class AppRelayApiClient {
   private baseUrl: string;
 
   constructor(baseUrl?: string) {
-    this.baseUrl = (baseUrl || process.env.NEXT_PUBLIC_APPRELAY_API_BASE_URL || '/api/app-relay/v1').replace(/\/$/, '');
+    // Defaults to the internal surface: the dashboard runs in the browser and
+    // authenticates with the operator's httpOnly session cookie. Pointing it at
+    // the partner surface (/api/app-relay/v1) would require shipping a partner
+    // API key to the client.
+    this.baseUrl = (baseUrl || process.env.NEXT_PUBLIC_APPRELAY_API_BASE_URL || '/api/app-relay/internal').replace(/\/$/, '');
   }
 
   private async request<T>(
@@ -60,6 +64,7 @@ export class AppRelayApiClient {
     const response = await fetch(url, {
       method: options.method || 'GET',
       headers,
+      credentials: 'same-origin',
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
 

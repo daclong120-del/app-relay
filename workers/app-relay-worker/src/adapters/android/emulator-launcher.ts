@@ -11,6 +11,7 @@ export interface EnsureEmulatorOptions {
   bootTimeoutMs?: number;
   pollIntervalMs?: number;
   headless?: boolean;
+  gpuMode?: string;
   isCancelled?: () => boolean;
 }
 
@@ -30,7 +31,19 @@ export async function ensureEmulatorRunning(
   const bootTimeoutMs = options?.bootTimeoutMs || 180000;
   const pollIntervalMs = options?.pollIntervalMs || 2000;
   const isCancelled = options?.isCancelled || (() => false);
-  const isHeadless = options?.headless ?? (process.env.HEADLESS === 'true' || process.env.NODE_ENV === 'production');
+  // HEADLESS explicit ('true'/'false') luôn thắng; nếu không set thì mới suy ra từ NODE_ENV.
+  const headlessEnv = (process.env.HEADLESS || '').trim().toLowerCase();
+  const isHeadless =
+    options?.headless ??
+    (headlessEnv === 'true'
+      ? true
+      : headlessEnv === 'false'
+        ? false
+        : process.env.NODE_ENV === 'production');
+  // Chế độ GPU cho lần chạy có GUI. Phải truyền tường minh: nếu AVD có
+  // hw.gpu.enabled=no thì emulator vẫn khởi động nhưng KHÔNG dựng được cửa sổ nào.
+  // swiftshader_indirect (render phần mềm) chạy được ở mọi nơi, kể cả WSL không có /dev/dri.
+  const gpuMode = options?.gpuMode || process.env.EMULATOR_GPU_MODE || 'swiftshader_indirect';
 
   // 1. Check if device is already online and sys.boot_completed == 1
   try {
@@ -49,7 +62,7 @@ export async function ensureEmulatorRunning(
   }
 
   // 2. Launch emulator in background process (detached)
-  console.log(`[EmulatorLauncher] Device "${serial}" not ready. Launching AVD "${avdName}" via "${emulatorPath}" (headless=${isHeadless})...`);
+  console.log(`[EmulatorLauncher] Device "${serial}" not ready. Launching AVD "${avdName}" via "${emulatorPath}" (headless=${isHeadless}, gpu=${isHeadless ? 'off' : gpuMode})...`);
 
   const emulatorArgs = [
     '-avd', avdName,
@@ -60,6 +73,8 @@ export async function ensureEmulatorRunning(
 
   if (isHeadless) {
     emulatorArgs.push('-no-window', '-no-audio', '-no-boot-anim', '-gpu', 'off');
+  } else {
+    emulatorArgs.push('-gpu', gpuMode, '-no-audio', '-no-boot-anim');
   }
 
   try {

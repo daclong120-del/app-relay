@@ -34,26 +34,26 @@ export async function handleUploadInit(db: any, jobId: string, body: any) {
   const safeFileName = input.fileName.replace(/[^a-zA-Z0-9_.-]/g, '_');
   const storagePath = `app-relay/${year}/${month}/${jobId}/${safeFileName}`;
 
-  // 3. Create signed upload URL from Supabase Storage
-  let uploadUrl = '';
+  // 3. Create signed upload URL from Supabase Storage.
+  //    There is no mock-URL fallback: the worker's uploader treats a URL
+  //    containing 'mock-token' as "ignore upload failures", so handing one back
+  //    turned a broken storage configuration into a silent fake success.
   const expiresAt = new Date(Date.now() + SIGNED_UPLOAD_TTL_SECONDS * 1000).toISOString();
 
-  if (db.storage) {
-    const { data: storageData, error: storageError } = await db.storage
-      .from(BUCKET_NAME)
-      .createSignedUploadUrl(storagePath);
+  if (!db?.storage) {
+    throw new Error('Storage upload init failed: storage client is unavailable.');
+  }
 
-    if (storageError) {
-      throw new Error(`Storage upload init failed: ${storageError.message}`);
-    }
-    uploadUrl = storageData.signedUrl;
-  } else {
-    // Fallback for mock/test environments
-    uploadUrl = `https://supabase.local/storage/v1/object/upload/sign/${BUCKET_NAME}/${storagePath}?token=mock-token`;
+  const { data: storageData, error: storageError } = await db.storage
+    .from(BUCKET_NAME)
+    .createSignedUploadUrl(storagePath);
+
+  if (storageError) {
+    throw new Error(`Storage upload init failed: ${storageError.message}`);
   }
 
   return {
-    uploadUrl,
+    uploadUrl: storageData.signedUrl,
     storagePath,
     expiresAt,
   };

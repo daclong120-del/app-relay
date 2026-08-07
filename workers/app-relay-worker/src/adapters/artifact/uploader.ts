@@ -42,11 +42,11 @@ export async function uploadArtifactToStorage(
     throw new Error(`STORAGE_UPLOAD_FAILED: Direct storage upload network failed: ${err.message}`);
   }
 
-  if (!uploadResponse.ok && uploadResponse.status !== 200 && uploadResponse.status !== 201) {
-    // In mock/test environments, 200/201 or mock URL may return OK
-    if (!initRes.uploadUrl.includes('mock-token')) {
-      throw new Error(`STORAGE_UPLOAD_FAILED: Storage upload returned status ${uploadResponse.status}`);
-    }
+  // A failed upload is always an error. The previous exemption for URLs
+  // containing 'mock-token' meant a misconfigured storage backend produced a
+  // job that reported success with no artifact behind it.
+  if (!uploadResponse.ok) {
+    throw new Error(`STORAGE_UPLOAD_FAILED: Storage upload returned status ${uploadResponse.status}`);
   }
 
   // 3. Upload Complete

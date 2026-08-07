@@ -4,7 +4,7 @@ if (typeof window !== 'undefined') {
   throw new Error('SERVER_ONLY_MODULE: AppRelay service cannot be loaded in browser environment.');
 }
 
-import { getAppRelayConfig } from '../config/app-relay-config';
+import { TenantScope } from '../app-relay-api/context';
 import {
   ArtifactExpiredError,
   ArtifactNotFoundError,
@@ -66,12 +66,24 @@ export function parseAndValidatePlayUrl(rawUrl: string): {
   };
 }
 
+export interface AppRelayActor {
+  /** UUID written to created_by / actor_id, or null for partner API keys. */
+  id: string | null;
+  /** Human-readable audit label, e.g. 'api_key:Acme Production'. */
+  label: string;
+}
+
+const ANONYMOUS_ACTOR: AppRelayActor = { id: null, label: 'unknown' };
+
 export class AppRelayService {
-  constructor(private db: any) {}
+  constructor(
+    private db: any,
+    private scope: TenantScope,
+    private actor: AppRelayActor = ANONYMOUS_ACTOR
+  ) {}
 
   async createApkPullJob(input: {
     playUrl: string;
-    userId?: string;
     includeListing?: boolean;
     includeScreenshots?: boolean;
   }): Promise<ReleaseOpsJobItem> {
@@ -80,16 +92,17 @@ export class AppRelayService {
     const jobRepo = new ReleaseOpsJobRepository(this.db);
     const auditRepo = new ReleaseOpsAuditRepository(this.db);
 
+    // Idempotency is scoped to the tenant. A global key meant two partners
+    // pulling the same package shared one job, so either could cancel the
+    // other's work.
     const idempotencyKey = `pull_apk:${packageId}:${locale}`;
-    const existing = await jobRepo.findByIdempotencyKey(idempotencyKey);
+    const existing = await jobRepo.findByIdempotencyKey(idempotencyKey, this.scope.tenantId);
     if (existing && ['queued', 'claimed', 'running'].includes(existing.status)) {
       return existing;
     }
 
-    // If a previous job with same idempotency key exists in terminal state,
-    // clear its key so we can create a fresh job
     if (existing && ['cancelled', 'failed', 'succeeded', 'dead_letter'].includes(existing.status)) {
-      await jobRepo.clearIdempotencyKey(existing.id);
+      await jobRepo.clearIdempotencyKey(existing.id, this.scope);
     }
 
     const payload: PullApkJobPayloadV1 = {
@@ -103,19 +116,22 @@ export class AppRelayService {
     };
 
     const job = await jobRepo.create({
+      tenantId: this.scope.tenantId,
       jobType: 'pull_apk',
       priority: 10,
       idempotencyKey,
       payload: payload as unknown as Record<string, unknown>,
-      createdBy: input.userId,
+      // Never taken from the request body: a caller must not be able to declare
+      // who they are.
+      createdBy: this.actor.id,
     });
 
     await auditRepo.create({
       action: 'create_apk_pull_job',
       entityType: 'release_ops_job',
       entityId: job.id,
-      actorId: input.userId,
-      details: { packageId, playUrl, jobId: job.id },
+      actorId: this.actor.id,
+      details: { packageId, playUrl, jobId: job.id, actor: this.actor.label, tenantId: this.scope.tenantId },
     });
 
     return job;
@@ -127,14 +143,16 @@ export class AppRelayService {
     const artifactRepo = new ReleaseOpsArtifactRepository(this.db);
     const workerRepo = new ReleaseOpsWorkerRepository(this.db);
 
-    const job = await jobRepo.findById(jobId);
+    const job = await jobRepo.findById(jobId, this.scope);
     if (!job) {
+      // Also the response for a job owned by another tenant: reporting 403 here
+      // would confirm that the id exists.
       throw new JobNotFoundError(jobId);
     }
 
     const [events, artifact, worker] = await Promise.all([
       eventRepo.findByJobId(jobId),
-      artifactRepo.findByJobId(jobId),
+      artifactRepo.findByJobId(jobId, this.scope),
       job.workerId ? workerRepo.findById(job.workerId) : Promise.resolve(null),
     ]);
 
@@ -146,11 +164,25 @@ export class AppRelayService {
     };
   }
 
-  async cancelJob(jobId: string, userId?: string): Promise<boolean> {
+  async cancelJob(jobId: string): Promise<boolean> {
+    const jobRepo = new ReleaseOpsJobRepository(this.db);
+
+    // Ownership is checked here because release_ops_cancel_job has no tenant
+    // awareness — handing it an id straight from the URL would let any caller
+    // cancel any job.
+    const job = await jobRepo.findById(jobId, this.scope);
+    if (!job) {
+      throw new JobNotFoundError(jobId);
+    }
+
+    if (['succeeded', 'failed', 'cancelled', 'expired', 'dead_letter'].includes(job.status)) {
+      throw new JobStateConflictError('Job cannot be cancelled in its current state.');
+    }
+
     if (this.db && typeof this.db.rpc === 'function') {
       const { data, error } = await this.db.rpc('release_ops_cancel_job', {
         p_job_id: jobId,
-        p_cancelled_by: userId || null,
+        p_cancelled_by: this.actor.id,
       });
 
       if (error || data !== true) {
@@ -159,32 +191,30 @@ export class AppRelayService {
       return true;
     }
 
-    const jobRepo = new ReleaseOpsJobRepository(this.db);
-    const job = await jobRepo.findById(jobId);
-    if (!job || ['succeeded', 'failed', 'cancelled', 'expired'].includes(job.status)) {
-      throw new JobStateConflictError('Job cannot be cancelled in its current state.');
-    }
-
-    return jobRepo.updateStatus(jobId, 'cancelled');
+    return jobRepo.updateStatus(jobId, 'cancelled', this.scope);
   }
 
-  async retryJob(jobId: string, userId?: string): Promise<boolean> {
+  async retryJob(jobId: string): Promise<boolean> {
     const jobRepo = new ReleaseOpsJobRepository(this.db);
     const auditRepo = new ReleaseOpsAuditRepository(this.db);
 
-    const job = await jobRepo.findById(jobId);
-    if (!job || !['failed', 'dead_letter'].includes(job.status)) {
+    const job = await jobRepo.findById(jobId, this.scope);
+    if (!job) {
+      throw new JobNotFoundError(jobId);
+    }
+
+    if (!['failed', 'dead_letter'].includes(job.status)) {
       throw new JobStateConflictError('Only failed or dead-letter jobs can be retried.');
     }
 
-    const success = await jobRepo.updateStatus(jobId, 'queued');
+    const success = await jobRepo.updateStatus(jobId, 'queued', this.scope);
     if (success) {
       await auditRepo.create({
         action: 'retry_job',
         entityType: 'release_ops_job',
         entityId: jobId,
-        actorId: userId,
-        details: { previousStatus: job.status },
+        actorId: this.actor.id,
+        details: { previousStatus: job.status, actor: this.actor.label },
       });
     }
 
@@ -195,8 +225,14 @@ export class AppRelayService {
     jobId: string,
     expiresInSeconds: number = 900
   ): Promise<{ downloadUrl: string; expiresAt: string }> {
+    const jobRepo = new ReleaseOpsJobRepository(this.db);
+    const job = await jobRepo.findById(jobId, this.scope);
+    if (!job) {
+      throw new JobNotFoundError(jobId);
+    }
+
     const artifactRepo = new ReleaseOpsArtifactRepository(this.db);
-    const artifact = await artifactRepo.findByJobId(jobId);
+    const artifact = await artifactRepo.findByJobId(jobId, this.scope);
 
     if (!artifact) {
       throw new ArtifactNotFoundError(jobId);
@@ -206,43 +242,56 @@ export class AppRelayService {
       throw new ArtifactExpiredError('Artifact download link has expired.');
     }
 
-    let downloadUrl = '';
     const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
 
-    if (this.db && this.db.storage) {
-      const { data, error } = await this.db.storage
-        .from('release-ops-artifacts')
-        .createSignedUrl(artifact.storagePath, expiresInSeconds);
+    const { data, error } = await this.db.storage
+      .from('release-ops-artifacts')
+      .createSignedUrl(artifact.storagePath, expiresInSeconds);
 
-      if (error) {
-        if (error.message?.includes('not found') || error.message?.includes('Object not found')) {
-          // File not yet uploaded to storage (e.g. fake pipeline or upload still in progress)
-          downloadUrl = `pending://${artifact.storagePath}`;
-          return { downloadUrl, expiresAt };
-        }
-        throw new Error(`Failed to generate signed download URL: ${error.message}`);
+    if (error) {
+      if (error.message?.includes('not found') || error.message?.includes('Object not found')) {
+        // Upload has not landed yet (or the pipeline never produced a file).
+        return { downloadUrl: `pending://${artifact.storagePath}`, expiresAt };
       }
-      downloadUrl = data.signedUrl;
-    } else {
-      downloadUrl = `https://supabase.local/storage/v1/object/sign/release-ops-artifacts/${artifact.storagePath}?token=signed-download-token`;
+      throw new Error(`Failed to generate signed download URL: ${error.message}`);
     }
 
-    return { downloadUrl, expiresAt };
+    return { downloadUrl: data.signedUrl, expiresAt };
   }
 
-  async deleteArtifact(artifactId: string, userId?: string): Promise<boolean> {
+  /** Deletes the active artifact belonging to `jobId`. */
+  async deleteArtifactForJob(jobId: string): Promise<boolean> {
+    const jobRepo = new ReleaseOpsJobRepository(this.db);
+    const job = await jobRepo.findById(jobId, this.scope);
+    if (!job) {
+      throw new JobNotFoundError(jobId);
+    }
+
     const artifactRepo = new ReleaseOpsArtifactRepository(this.db);
-    const artifact = await artifactRepo.findById(artifactId);
+    const artifact = await artifactRepo.findByJobId(jobId, this.scope);
 
     if (!artifact) {
-      throw new ArtifactNotFoundError(artifactId);
+      throw new ArtifactNotFoundError(jobId);
     }
 
-    await artifactRepo.markDeleted(artifactId);
+    await artifactRepo.markDeleted(artifact.id, this.scope);
 
-    if (this.db && this.db.storage) {
-      await this.db.storage.from('release-ops-artifacts').remove([artifact.storagePath]).catch(() => {});
+    if (this.db?.storage) {
+      try {
+        await this.db.storage.from('release-ops-artifacts').remove([artifact.storagePath]);
+      } catch {
+        // Metadata is already marked deleted; storage sweep is best-effort.
+      }
     }
+
+    const auditRepo = new ReleaseOpsAuditRepository(this.db);
+    await auditRepo.create({
+      action: 'delete_artifact',
+      entityType: 'release_ops_artifact',
+      entityId: artifact.id,
+      actorId: this.actor.id,
+      details: { jobId, storagePath: artifact.storagePath, actor: this.actor.label },
+    });
 
     return true;
   }

@@ -1,18 +1,30 @@
 # AppRelay Public API — Quick Start Guide (Public Endpoint)
 
+> **⚠️ Tài liệu này đang được cập nhật và CHƯA dùng để phát cho đối tác.**
+>
+> - Token `dev-worker-token-secret-key` từng ghi ở đây **đã bị vô hiệu hoá vĩnh viễn**. Nó là token nội bộ của worker, bị lộ do tài liệu này, và giờ bị từ chối ở mọi endpoint.
+> - Mỗi đối tác nhận **API key riêng** gắn với tenant của mình. Cấp key bằng:
+>   `npx tsx scripts/issue-api-key.ts --tenant <slug> --name "<tên key>"`
+> - Base URL cũ (`*.trycloudflare.com`) là quick tunnel tạm, đã chết. Cần domain thật trước khi phát tài liệu.
+> - Ví dụ `jobId` dạng `job_1786001234_abc` bên dưới là **sai** — ID thật là UUID. Phần còn lại của tài liệu chưa được kiểm chứng lại với hệ thống thật.
+
 ## Connection
 
 | | |
 |---|---|
-| **Base URL** | `https://adapter-diy-provisions-troubleshooting.trycloudflare.com/api/app-relay/v1` |
-| **Auth** | `Authorization: Bearer dev-worker-token-secret-key` |
+| **Base URL** | `https://<domain-cua-ban>/api/app-relay/v1` |
+| **Auth** | `Authorization: Bearer ark_live_<api-key-cua-ban>` |
 | **Content-Type** | `application/json` |
+
+Mỗi key chỉ thấy job của chính tenant mình. Truy cập job của tenant khác trả `404`.
+
+Scope mặc định: `jobs:read`, `jobs:write`, `artifacts:read`. Thiếu scope trả `403`.
 
 ### Setup (paste vào terminal 1 lần)
 
 ```bash
-export BASE="https://adapter-diy-provisions-troubleshooting.trycloudflare.com/api/app-relay/v1"
-export TOKEN="dev-worker-token-secret-key"
+export BASE="https://<domain-cua-ban>/api/app-relay/v1"
+export TOKEN="ark_live_..."   # key được cấp riêng, không chia sẻ
 ```
 
 ---

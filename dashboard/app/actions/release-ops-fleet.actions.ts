@@ -1,9 +1,13 @@
-'use server';
-
-// Server Actions for Worker Fleet Monitoring & Readiness
+// Worker Fleet Monitoring & Readiness (server-side helpers)
+//
+// See app-relay.actions.ts: the 'use server' directive was removed because an
+// exported server action is a network endpoint, and these functions accepted
+// their caller's `session` object as proof of admin rights.
 
 import { ReleaseOpsWorkerRepository } from '../../lib/repositories/release-ops-worker.repo';
 import { ActionResult, ActionSecurityOptions } from './app-relay.actions';
+import { getDashboardSession } from '../../lib/app-relay-auth/session';
+import { getServiceRoleClient } from '../../lib/db/service-client';
 import { requireAdmin, UserSessionContext } from '../../lib/guards/admin-csrf.guard';
 
 export interface WorkerFleetStatusItem {
@@ -21,26 +25,19 @@ export interface WorkerFleetStatusItem {
 function resolveDbClient(options?: ActionSecurityOptions, customDb?: any): any {
   if (customDb) return customDb;
   if (options?.db) return options.db;
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (supabaseUrl && serviceRoleKey) {
-    try {
-      const { createClient } = require('@supabase/supabase-js');
-      return createClient(supabaseUrl, serviceRoleKey);
-    } catch {
-      // Fallback
-    }
-  }
-  return null;
+  return getServiceRoleClient();
 }
 
-function resolveSession(options?: ActionSecurityOptions): UserSessionContext {
+async function resolveSession(options?: ActionSecurityOptions): Promise<UserSessionContext> {
   if (options?.session) {
     return requireAdmin(options.session);
   }
-  if (!process.env.NODE_ENV || process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
-    return { userId: 'default-admin-id', role: 'admin', email: 'admin@sinomedia.vn' };
+
+  const session = await getDashboardSession();
+  if (session) {
+    return requireAdmin({ userId: session.userId, role: session.role, email: session.email });
   }
+
   throw new Error('UNAUTHORIZED: Admin session required.');
 }
 
@@ -60,7 +57,7 @@ export async function getWorkerFleetStatusAction(
   }
 
   try {
-    resolveSession(options);
+    await resolveSession(options);
 
     const repo = new ReleaseOpsWorkerRepository(db);
     const workers = await repo.findAll();

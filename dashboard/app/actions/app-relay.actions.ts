@@ -1,6 +1,11 @@
-'use server';
-
-// Next.js Server Actions for Release Ops AppRelay & Job Operations
+// Server-side AppRelay job operations used by the dashboard.
+//
+// NOTE: this module deliberately does NOT carry the 'use server' directive.
+// Exported server actions are network-reachable endpoints, and these functions
+// took their `session` object as an argument — so any caller could assert
+// `role: 'admin'` and drive them with a service-role database client. They are
+// ordinary server-side functions now; the HTTP surface lives at
+// /api/app-relay/internal, behind a real session.
 
 import {
   cancelJobService,
@@ -8,10 +13,15 @@ import {
   getApkPullJobDetailService,
   retryJobService,
 } from '../../lib/services/release-ops.service';
+import { internalScope } from '../../lib/app-relay-api/context';
+import { getInternalTenantId } from '../../lib/app-relay-api/tenants';
+import { getDashboardSession } from '../../lib/app-relay-auth/session';
+import { getServiceRoleClient } from '../../lib/db/service-client';
 import { ReleaseOpsArtifactRepository } from '../../lib/repositories/release-ops-artifact.repo';
 import { ReleaseOpsJobRepository } from '../../lib/repositories/release-ops-job.repo';
 import { AppRelayJobDetail, ReleaseOpsJobItem, ReleaseOpsJobStatus, ReleaseOpsJobType } from '../../types/release-ops';
 import { requireAdmin, UserSessionContext, verifyCSRF } from '../../lib/guards/admin-csrf.guard';
+import { AppRelayActor } from '../../lib/services/app-relay.service';
 
 export interface CreateAppRelayJobInput {
   playUrl: string;
@@ -35,27 +45,34 @@ export interface ActionResult<T> {
 function resolveDbClient(options?: ActionSecurityOptions, customDb?: any): any {
   if (customDb) return customDb;
   if (options?.db) return options.db;
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (supabaseUrl && serviceRoleKey) {
-    try {
-      const { createClient } = require('@supabase/supabase-js');
-      return createClient(supabaseUrl, serviceRoleKey);
-    } catch {
-      // Fallback
-    }
-  }
-  return null;
+  return getServiceRoleClient();
 }
 
-function resolveSession(options?: ActionSecurityOptions): UserSessionContext {
+/**
+ * Resolves the acting operator. An explicitly supplied session is trusted only
+ * because this module is not network-reachable; otherwise the session is read
+ * from the signed cookie. There is no longer an "assume admin in development"
+ * branch — that granted full access to anyone who could reach the process.
+ */
+async function resolveSession(options?: ActionSecurityOptions): Promise<UserSessionContext> {
   if (options?.session) {
     return requireAdmin(options.session);
   }
-  if (!process.env.NODE_ENV || process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
-    return { userId: 'default-admin-id', role: 'admin', email: 'admin@sinomedia.vn' };
+
+  const session = await getDashboardSession();
+  if (session) {
+    return requireAdmin({ userId: session.userId, role: session.role, email: session.email });
   }
+
   throw new Error('UNAUTHORIZED: Admin session required.');
+}
+
+function toActor(session: UserSessionContext): AppRelayActor {
+  return { id: session.userId, label: `user:${session.email || session.userId}` };
+}
+
+async function internalScopeFor(db: any) {
+  return internalScope(await getInternalTenantId(db));
 }
 
 export async function createAppRelayJobAction(
@@ -78,12 +95,12 @@ export async function createAppRelayJobAction(
   }
 
   try {
-    const session = resolveSession(options);
+    const session = await resolveSession(options);
     verifyCSRF(options?.csrfToken);
 
     const job = await createApkPullJobService(db, {
       playUrl: input.playUrl,
-      userId: session.userId,
+      actor: toActor(session),
       includeListing: input.includeListing ?? true,
       includeScreenshots: input.includeScreenshots ?? true,
     });
@@ -114,10 +131,11 @@ export async function getAppRelayJobsAction(
   }
 
   try {
-    resolveSession(options);
+    await resolveSession(options);
 
     const repo = new ReleaseOpsJobRepository(db);
     const jobs = await repo.findAll({
+      scope: await internalScopeFor(db),
       jobType: params?.jobType || 'pull_apk',
       status: params?.status,
       limit: params?.limit || 50,
@@ -150,9 +168,9 @@ export async function getAppRelayJobDetailAction(
   }
 
   try {
-    resolveSession(options);
+    const session = await resolveSession(options);
 
-    const detail = await getApkPullJobDetailService(db, jobId);
+    const detail = await getApkPullJobDetailService(db, jobId, toActor(session));
     if (!detail) {
       return { success: false, error: 'NOT_FOUND: AppRelay job not found.' };
     }
@@ -182,10 +200,10 @@ export async function cancelAppRelayJobAction(
   }
 
   try {
-    const session = resolveSession(options);
+    const session = await resolveSession(options);
     verifyCSRF(options?.csrfToken);
 
-    const cancelled = await cancelJobService(db, jobId, session.userId);
+    const cancelled = await cancelJobService(db, jobId, toActor(session));
     if (!cancelled) {
       return { success: false, error: 'Job cannot be cancelled in its current state.' };
     }
@@ -215,10 +233,10 @@ export async function retryAppRelayJobAction(
   }
 
   try {
-    const session = resolveSession(options);
+    const session = await resolveSession(options);
     verifyCSRF(options?.csrfToken);
 
-    const retried = await retryJobService(db, jobId, session.userId);
+    const retried = await retryJobService(db, jobId, toActor(session));
     if (!retried) {
       return { success: false, error: 'Only failed or dead-letter jobs can be retried.' };
     }
@@ -252,10 +270,10 @@ export async function getAppRelayDownloadUrlAction(
   }
 
   try {
-    resolveSession(options);
+    await resolveSession(options);
 
     const artifactRepo = new ReleaseOpsArtifactRepository(db);
-    const artifact = await artifactRepo.findByJobId(jobId);
+    const artifact = await artifactRepo.findByJobId(jobId, await internalScopeFor(db));
 
     if (!artifact) {
       return { success: false, error: 'NOT_FOUND: No active artifact found for this job.' };
@@ -265,30 +283,18 @@ export async function getAppRelayDownloadUrlAction(
       return { success: false, error: 'EXPIRED: Artifact download link has expired.' };
     }
 
-    let downloadUrl = '';
     const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
 
-    if (db && db.storage) {
-      const { data, error } = await db.storage
-        .from('release-ops-artifacts')
-        .createSignedUrl(artifact.storagePath, expiresInSeconds);
+    // No fabricated URL fallback: if storage cannot sign the object, say so.
+    const { data, error } = await db.storage
+      .from('release-ops-artifacts')
+      .createSignedUrl(artifact.storagePath, expiresInSeconds);
 
-      if (error) {
-        return { success: false, error: `Failed to generate signed download URL: ${error.message}` };
-      }
-      downloadUrl = data.signedUrl;
-    } else {
-      // Mock/fallback download URL
-      downloadUrl = `https://supabase.local/storage/v1/object/sign/release-ops-artifacts/${artifact.storagePath}?token=signed-download-token`;
+    if (error) {
+      return { success: false, error: `Failed to generate signed download URL: ${error.message}` };
     }
 
-    return {
-      success: true,
-      data: {
-        downloadUrl,
-        expiresAt,
-      },
-    };
+    return { success: true, data: { downloadUrl: data.signedUrl, expiresAt } };
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to generate download URL.' };
   }
@@ -314,22 +320,25 @@ export async function deleteAppRelayArtifactAction(
   }
 
   try {
-    resolveSession(options);
+    await resolveSession(options);
     verifyCSRF(options?.csrfToken);
 
+    const scope = await internalScopeFor(db);
     const artifactRepo = new ReleaseOpsArtifactRepository(db);
-    const artifact = await artifactRepo.findById(artifactId);
+    const artifact = await artifactRepo.findById(artifactId, scope);
 
     if (!artifact) {
       return { success: false, error: 'NOT_FOUND: Artifact not found.' };
     }
 
-    // Mark deleted in database first
-    await artifactRepo.markDeleted(artifactId);
+    await artifactRepo.markDeleted(artifactId, scope);
 
-    // Remove from storage if client available
-    if (db && db.storage) {
-      await db.storage.from('release-ops-artifacts').remove([artifact.storagePath]).catch(() => {});
+    if (db?.storage) {
+      try {
+        await db.storage.from('release-ops-artifacts').remove([artifact.storagePath]);
+      } catch {
+        // Metadata is already marked deleted; storage sweep is best-effort.
+      }
     }
 
     return { success: true, data: true };
