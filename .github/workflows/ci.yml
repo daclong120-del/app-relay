@@ -8,29 +8,69 @@ on:
 
 jobs:
   test-and-verify:
-    name: Run All AppRelay Test Suites
+    name: Run All AppRelay Test Suites & Build
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Setup Node.js Environment
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          cache: 'pnpm'
 
-      - name: Install Root Dependencies
-        run: npm ci || npm install
+      - name: Install Monorepo Dependencies
+        run: pnpm install --frozen-lockfile
 
-      - name: Execute Unified Test Matrix
-        run: npx tsx scripts/run-all-tests.ts
+      - name: Build All Packages & Apps
+        run: pnpm build
+
+      - name: Execute Test Matrix
+        run: pnpm test
+
+  db-migrate:
+    name: Apply Supabase Migrations
+    runs-on: ubuntu-latest
+    needs: test-and-verify
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Monorepo Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply pending migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          pnpm exec tsx scripts/db-migrate.ts --apply
 
   build-and-push:
     name: Build & Push Images to Docker Hub
     runs-on: ubuntu-latest
-    needs: test-and-verify
+    needs: db-migrate
     if: github.event_name == 'push'
 
     steps:
@@ -46,21 +86,21 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build & Push Dashboard Image
+      - name: Build & Push API Image
         uses: docker/build-push-action@v5
         with:
-          context: ./dashboard
-          file: ./dashboard/Dockerfile
+          context: .
+          file: ./apps/api/Dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/app-relay-dashboard:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/app-relay-dashboard:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/app-relay-api:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/app-relay-api:${{ github.sha }}
 
       - name: Build & Push Worker Image
         uses: docker/build-push-action@v5
         with:
-          context: ./workers/app-relay-worker
-          file: ./workers/app-relay-worker/Dockerfile
+          context: .
+          file: ./apps/worker/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/app-relay-worker:latest
@@ -82,7 +122,13 @@ jobs:
           port: ${{ secrets.VPS_SSH_PORT || 22 }}
           script: |
             cd ${{ secrets.VPS_DEPLOY_PATH || '/root/app-relay' }}
-            docker compose pull
-            docker compose up -d --remove-orphans
+            if [ -d "deploy" ]; then cd deploy; fi
+            export DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
+            COMPOSE_FILES="-f compose.yml"
+            if [ -e /dev/kvm ]; then
+              COMPOSE_FILES="-f compose.yml -f compose.kvm.yaml"
+            fi
+            docker compose $COMPOSE_FILES pull
+            docker compose $COMPOSE_FILES --profile production up -d --remove-orphans
             docker image prune -f
             echo "✅ App Relay deployed successfully"

@@ -1,39 +1,32 @@
-# Dependencies
-node_modules
+# Node dependencies
+node_modules/
 
-# Environment files (secrets)
+# Environment & sensitive credential files
 .env
-.env.local
-.env.vercel
+.env.*
 !.env.example
-!.env.local.example
+!.env.*.example
+*.info
+new_setup/*.info
 
 # Build output
-.next
-dist
-.turbo
+dist/
+build/
+.next/
+.turbo/
+*.tsbuildinfo
 
-# IDE
-.vscode
-.idea
+# Work & Artifact directories
+apps/worker/work/
+apps/api/data/
+artifacts/
 
-# OS
+# OS & Editor files
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
 
-# Supabase local
-supabase/.temp
-
-# Worker temp workspace
-workers/app-relay-worker/tmp
-
-# Android SDK (local install)
+# Local tools & SDKs
 tools/
-
-# APK work output
-work/apks/
-
-# cmdline-tools
 cmdline-tools/
-
-tests/

@@ -1,0 +1,8 @@
+services:
+  worker:
+    devices:
+      - /dev/kvm:/dev/kvm
+    group_add:
+      - "${KVM_GID:-108}"
+    environment:
+      EMULATOR_ACCEL: "on"
