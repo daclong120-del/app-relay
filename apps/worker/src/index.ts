@@ -7,7 +7,6 @@ import { scrapePlayStoreListing } from './pipeline/scraper.js';
 import { isDeviceReady, wakeAndUnlockDevice } from './android/adb.js';
 import { ensureAppInstalled } from './pipeline/installer.js';
 import { pullApkAndMetadata, validateZipArchive } from './pipeline/puller.js';
-import { packageWorkDirToZip } from './pipeline/packager.js';
 
 const WORKER_ID = process.env.WORKER_ID || 'worker_vps_01';
 const WORKER_NAME = process.env.WORKER_NAME || 'VPS Worker 01';
@@ -21,7 +20,7 @@ const WORK_DIR = process.env.WORK_DIR || path.join(process.cwd(), 'work', 'apks'
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '5000', 10);
 const HEARTBEAT_INTERVAL_MS = parseInt(process.env.HEARTBEAT_INTERVAL_MS || '20000', 10);
 
-const client = new RelayApiClient(RELAY_API_URL, WORKER_TOKEN);
+const client = new RelayApiClient(RELAY_API_URL, WORKER_TOKEN, WORKER_ID);
 
 async function cleanWorkDirOnStartup() {
   try {
@@ -232,19 +231,24 @@ async function processJob(job: any) {
       throw new Error('Job cancellation requested by server');
     }
 
-    // Step 9: Packaging ZIP
-    await heartbeatCtrl.update(90, 'packaging');
-    await client.recordEvent(jobId, 'artifact.packaging', 'Compressing job output directory to ZIP archive');
-    const pkgRes = await packageWorkDirToZip(pkgWorkDir, packageId);
+    // Step 9: Uploading artifact directory
+    //
+    // Không nén nữa. API lưu nguyên thư mục nên client lấy được từng file mà
+    // không phải giải nén ngược, và xoá riêng APK chỉ là một lệnh rm.
+    // Xem new_setup/artifact_storage.md.
+    await heartbeatCtrl.update(90, 'uploading_artifact');
+    await client.recordEvent(jobId, 'artifact.uploading', 'Uploading artifact directory to API server');
 
-    if (heartbeatCtrl.isCancelRequested()) {
-      throw new Error('Job cancellation requested by server');
-    }
+    const uploadRes = await client.uploadArtifactDir(jobId, pkgWorkDir, packageId, (done, total, relPath) => {
+      if (done === total || done % 5 === 0) {
+        console.log(`[Upload] ${done}/${total} — ${relPath}`);
+      }
+    });
 
-    // Step 10: Uploading Artifact
-    await heartbeatCtrl.update(95, 'uploading_artifact');
-    await client.recordEvent(jobId, 'artifact.uploading', 'Uploading ZIP bundle to API server');
-    await client.uploadArtifact(jobId, pkgRes.zipFilePath, pkgRes.fileName, pkgRes.sha256);
+    await client.recordEvent(jobId, 'artifact.ready', 'Artifact directory uploaded and finalized', {
+      fileCount: uploadRes.fileCount,
+      totalBytes: uploadRes.totalBytes,
+    });
 
     if (heartbeatCtrl.isCancelRequested()) {
       throw new Error('Job cancellation requested by server');
@@ -294,10 +298,6 @@ async function processJob(job: any) {
     try {
       if (existsSync(pkgWorkDir)) {
         await fs.rm(pkgWorkDir, { recursive: true, force: true }).catch(() => {});
-      }
-      const zipPath = path.join(path.dirname(pkgWorkDir), `${packageId}.zip`);
-      if (existsSync(zipPath)) {
-        await fs.rm(zipPath, { force: true }).catch(() => {});
       }
     } catch (cleanupErr) {
       console.warn(`[Worker] Cleanup warning for ${jobId}: ${cleanupErr}`);

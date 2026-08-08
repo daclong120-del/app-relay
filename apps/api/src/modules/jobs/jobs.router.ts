@@ -1,6 +1,12 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import { CreateJobRequestSchema, CreateBatchJobRequestSchema, JobQuerySchema } from '@app-relay/contracts';
+import {
+  CreateJobRequestSchema,
+  CreateBatchJobRequestSchema,
+  JobQuerySchema,
+  DownloadUrlRequestSchema,
+  selectorMatches,
+} from '@app-relay/contracts';
 import { supabase } from '../../database/supabase.js';
 import { requirePublicAuth } from '../../middleware/auth.js';
 import { formatJobResponse, formatArtifactResponse, formatJobEventResponse } from '../../utils/formatters.js';
@@ -54,6 +60,7 @@ router.post('/', requirePublicAuth, async (req: Request, res: Response) => {
       play_url: body.playUrl,
       include_listing: body.includeListing,
       include_screenshots: body.includeScreenshots,
+      delete_after_download: body.deleteAfterDownload,
       options: body.options || {},
       status: 'queued',
       idempotency_key: idempotencyKey || null,
@@ -119,6 +126,7 @@ router.post('/batch', requirePublicAuth, async (req: Request, res: Response) => 
         play_url: playUrl,
         include_listing: body.includeListing,
         include_screenshots: body.includeScreenshots,
+        delete_after_download: body.deleteAfterDownload,
         options: body.options || {},
         status: 'queued',
         queued_at: nowIso,
@@ -312,34 +320,128 @@ router.post('/:jobId/retry', requirePublicAuth, async (req: Request, res: Respon
   }
 });
 
-// POST /v1/jobs/:jobId/artifact/download-url
-router.post('/:jobId/artifact/download-url', requirePublicAuth, async (req: Request, res: Response) => {
+// GET /v1/jobs/:jobId/artifact/files
+router.get('/:jobId/artifact/files', requirePublicAuth, async (req: Request, res: Response) => {
   try {
     const { jobId } = req.params;
-    const { data: artifact } = await supabase.from('artifacts').select('*').eq('job_id', jobId).single();
+    const { data: artifact } = await supabase.from('artifacts').select('*').eq('job_id', jobId).maybeSingle();
 
     if (!artifact) {
-      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Artifact not found for this job' } });
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Job này chưa có artifact' } });
     }
-
-    const ttlSeconds = parseInt(process.env.DOWNLOAD_URL_TTL_SECONDS || '600', 10);
-    const expiresAtSec = Math.floor(Date.now() / 1000) + ttlSeconds;
-    const signature = signDownloadUrl(artifact.id, expiresAtSec);
-
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
-    const downloadUrl = `${baseUrl}/v1/artifacts/${artifact.id}/download?expires=${expiresAtSec}&signature=${signature}`;
 
     res.json({
       data: {
-        downloadUrl,
-        expiresAt: new Date(expiresAtSec * 1000).toISOString(),
-        fileName: artifact.file_name,
-        sizeBytes: artifact.size_bytes,
-        sha256: artifact.sha256,
+        artifactId: artifact.id,
+        state: artifact.state,
+        totalSizeBytes: artifact.size_bytes ? Number(artifact.size_bytes) : 0,
+        files: artifact.files || [],
       },
     });
   } catch (err: any) {
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: err.message } });
+  }
+});
+
+// POST /v1/jobs/:jobId/artifact/download-url
+router.post('/:jobId/artifact/download-url', requirePublicAuth, async (req: Request, res: Response) => {
+  try {
+    const { jobId } = req.params;
+    const body = DownloadUrlRequestSchema.parse(req.body ?? {});
+
+    const { data: artifact } = await supabase.from('artifacts').select('*').eq('job_id', jobId).single();
+
+    if (!artifact) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Job này chưa có artifact' } });
+    }
+
+    const ttlSecondsBase = parseInt(process.env.DOWNLOAD_URL_TTL_SECONDS || '600', 10);
+
+    // Artifact cũ lưu dạng một file ZIP: không có `files` để cắt lẻ, và tên đã
+    // sẵn đuôi .zip nên không được ghép thêm lần nữa.
+    if (artifact.kind === 'bundle_zip') {
+      if (body.path || body.select !== 'all') {
+        return res.status(409).json({
+          error: {
+            code: 'LEGACY_ARTIFACT',
+            message: 'Artifact này lưu theo định dạng cũ (một file ZIP), không tải lẻ từng phần được',
+          },
+        });
+      }
+
+      const legacyExpires = Math.floor(Date.now() / 1000) + ttlSecondsBase;
+      const legacySig = signDownloadUrl(artifact.id, legacyExpires);
+      const legacyBase = `${req.protocol}://${req.get('host')}`;
+
+      return res.json({
+        data: {
+          downloadUrl: `${legacyBase}/v1/artifacts/${artifact.id}/download?expires=${legacyExpires}&signature=${legacySig}`,
+          expiresAt: new Date(legacyExpires * 1000).toISOString(),
+          fileName: artifact.file_name,
+          sizeBytes: artifact.size_bytes ? Number(artifact.size_bytes) : 0,
+          sha256: artifact.sha256 ?? null,
+          fileCount: 1,
+        },
+      });
+    }
+
+    const files: any[] = artifact.files || [];
+
+    // Chốt sớm ở đây thay vì để client cầm một link chỉ để nhận 410 lúc tải.
+    let picked = files;
+    if (body.path) {
+      picked = files.filter((f) => f.path === body.path);
+      if (picked.length === 0) {
+        return res.status(404).json({
+          error: { code: 'FILE_NOT_FOUND', message: `Artifact không có file '${body.path}'` },
+        });
+      }
+    } else if (body.select !== 'all') {
+      picked = files.filter((f) => selectorMatches(f.path, body.select));
+      if (picked.length === 0) {
+        return res.status(404).json({
+          error: {
+            code: 'NOTHING_SELECTED',
+            message: `Không có file nào khớp '${body.select}' (APK có thể đã hết hạn sớm)`,
+          },
+        });
+      }
+    }
+
+    const ttlSeconds = ttlSecondsBase;
+    const expiresAtSec = Math.floor(Date.now() / 1000) + ttlSeconds;
+    const signature = signDownloadUrl(artifact.id, expiresAtSec);
+
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const qs = new URLSearchParams();
+    if (body.path) qs.set('path', body.path);
+    else if (body.select !== 'all') qs.set('select', body.select);
+    qs.set('expires', String(expiresAtSec));
+    qs.set('signature', signature);
+
+    const isSingle = picked.length === 1;
+    const base = artifact.file_name || jobId;
+    const fileName = isSingle
+      ? picked[0].path.split('/').pop()
+      : body.select === 'all'
+        ? `${base}.zip`
+        : `${base}-${body.select}.zip`;
+
+    res.json({
+      data: {
+        downloadUrl: `${baseUrl}/v1/artifacts/${artifact.id}/download?${qs.toString()}`,
+        expiresAt: new Date(expiresAtSec * 1000).toISOString(),
+        fileName,
+        // Với nhiều file thì đây là tổng kích thước THÔ, còn ZIP nén khi đang
+        // stream nên nhỏ hơn. Chỉ dùng để ước lượng.
+        sizeBytes: picked.reduce((s: number, f: any) => s + (f.sizeBytes || 0), 0),
+        // sha256 chỉ có nghĩa với một file: ZIP sinh tại chỗ mỗi lần một khác.
+        sha256: isSingle ? picked[0].sha256 ?? null : null,
+        fileCount: picked.length,
+      },
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: { code: 'BAD_REQUEST', message: err.message } });
   }
 });
 

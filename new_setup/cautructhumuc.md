@@ -105,7 +105,7 @@ Phân biệt:
 | AVD `chpay`          | Docker volume                   |
 | Google Play login    | Nằm trong AVD volume            |
 | APK đang xử lý       | Worker work volume              |
-| ZIP hoàn chỉnh       | Upload sang API artifact volume |
+| Thư mục artifact     | Upload sang API artifact volume |
 
 JDK và SDK không cần volume. Khi muốn nâng phiên bản, rebuild image.
 
@@ -210,7 +210,15 @@ SUPABASE_URL=https://xxxxx.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_xxxxx
 
 ARTIFACT_DIR=/data/artifacts
-ARTIFACT_TTL_HOURS=48
+
+# APK chiếm 98% dung lượng nên hết hạn sớm hơn hẳn phần còn lại.
+APK_TTL_HOURS=6
+ARTIFACT_TTL_HOURS=720
+
+# Dưới ngưỡng này thì đuổi artifact cũ và ngừng giao job mới cho worker.
+ARTIFACT_MIN_FREE_BYTES=10737418240
+ORPHAN_DIR_MIN_AGE_MINUTES=120
+DELETE_AFTER_DOWNLOAD_GRACE_MINUTES=10
 
 DOWNLOAD_SIGNING_SECRET=xxxxx
 DOWNLOAD_URL_TTL_SECONDS=600

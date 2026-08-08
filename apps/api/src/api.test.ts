@@ -12,6 +12,77 @@ import { formatAppResponse, formatJobResponse, formatArtifactResponse, formatJob
 import { isValidPackageId, PACKAGE_ID_REGEX } from './utils/validation.js';
 import { escapePostgrestValue, ilikeContains } from './utils/postgrest.js';
 import { requireEnv } from './utils/env.js';
+import { contentTypeFor, jobArtifactDir, normalizeEntryPath, resolveEntry } from './utils/artifact-path.js';
+import { isApkPath } from '@app-relay/contracts';
+
+describe('Artifact path containment', () => {
+  // Đường dẫn file đi thẳng từ URL của worker và của client, nên đây là chỗ
+  // duy nhất chặn việc đọc/ghi ra ngoài thư mục artifact.
+  const ESCAPES = [
+    '../../../etc/passwd',
+    '..%2f..%2fetc%2fpasswd',
+    'a/../../../etc/passwd',
+    '/etc/passwd',
+    '..\\..\\windows\\system32',
+    '..',
+    '',
+  ];
+
+  it('từ chối mọi đường dẫn thoát ra khỏi thư mục artifact', () => {
+    for (const p of ESCAPES) {
+      assert.strictEqual(normalizeEntryPath(p), null, `phải từ chối: ${p}`);
+    }
+  });
+
+  it('chặn cả khi ghép vào resolveEntry', () => {
+    for (const p of ESCAPES) {
+      assert.strictEqual(resolveEntry('job_1', p), null, `phải từ chối: ${p}`);
+    }
+  });
+
+  it('giữ nguyên đường dẫn hợp lệ của layout README', () => {
+    assert.strictEqual(normalizeEntryPath('base.apk'), 'base.apk');
+    assert.strictEqual(normalizeEntryPath('playstore/screenshots/screenshot_01.png'), 'playstore/screenshots/screenshot_01.png');
+    assert.strictEqual(normalizeEntryPath('split_config.arm64_v8a.apk'), 'split_config.arm64_v8a.apk');
+    // Dấu chấm đôi trong TÊN file là hợp lệ, khác hẳn với thành phần `..`.
+    assert.strictEqual(normalizeEntryPath('a..b.apk'), 'a..b.apk');
+  });
+
+  it('loại dotfile để client không đụng được sổ SHA nội bộ', () => {
+    assert.strictEqual(normalizeEntryPath('.uploads.jsonl'), null);
+    assert.strictEqual(normalizeEntryPath('playstore/.secret'), null);
+  });
+
+  it('từ chối jobId dị dạng thay vì ghép thẳng vào đường dẫn', () => {
+    assert.throws(() => jobArtifactDir('../../etc'), /Invalid jobId/);
+    assert.throws(() => jobArtifactDir('job/../..'), /Invalid jobId/);
+    assert.doesNotThrow(() => jobArtifactDir('job_1786177698743_646204696b75b42b'));
+  });
+
+  it('chỉ coi APK là APK — quyết định xoá 98% dung lượng dựa vào đây', () => {
+    // deleteAfterDownload chỉ được kích hoạt khi lượt tải THỰC SỰ có APK.
+    // Nếu hàm này nhận nhầm, client tải icon 22 KB sẽ làm bay 140 MB APK.
+    assert.ok(isApkPath('base.apk'));
+    assert.ok(isApkPath('split_config.arm64_v8a.apk'));
+    assert.ok(!isApkPath('playstore/icon.png'));
+    assert.ok(!isApkPath('playstore/screenshots/screenshot_01.png'));
+    assert.ok(!isApkPath('PULL_MANIFEST.txt'));
+    assert.ok(!isApkPath('page.html'));
+
+    const listingOnly = ['playstore/description.md', 'playstore/listing.json', 'playstore/icon.png'];
+    assert.ok(!listingOnly.some(isApkPath), 'tải listing không được kích hoạt xoá APK');
+
+    const withApk = ['base.apk', 'playstore/icon.png'];
+    assert.ok(withApk.some(isApkPath), 'tải cả cục phải kích hoạt xoá APK');
+  });
+
+  it('đoán đúng content-type cho từng loại file trong bundle', () => {
+    assert.strictEqual(contentTypeFor('base.apk'), 'application/vnd.android.package-archive');
+    assert.strictEqual(contentTypeFor('playstore/icon.png'), 'image/png');
+    assert.strictEqual(contentTypeFor('playstore/listing.json'), 'application/json');
+    assert.strictEqual(contentTypeFor('device-dir.listing'), 'text/plain; charset=utf-8');
+  });
+});
 
 describe('requireEnv', () => {
   it('returns the value when the variable is set', () => {

@@ -33,6 +33,8 @@ work/apks/<packageId>/
 
 Không commit `*.apk` (đã `.gitignore`).
 
+Layout này không chỉ dùng cho bản pull thủ công. Khi chạy qua hệ thống job, worker gửi **đúng cây thư mục này** lên API và API lưu y nguyên tại `/data/artifacts/{jobId}/` — không nén thành ZIP. Nhờ vậy client xin được từng file thay vì phải tải cả cục. Xem `artifact_storage.md`.
+
 ## Môi trường
 
 | Thành phần | Giá trị |

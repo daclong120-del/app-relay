@@ -45,9 +45,9 @@ flowchart TD
     C["Client"] -->|"Bearer API_TOKEN"| A["App Relay API"]
     A -->|"Metadata"| S["Supabase"]
     W["Worker + Emulator"] -->|"WORKER_TOKEN"| A
-    W -->|"Upload ZIP"| A
-    A -->|"Stream ZIP"| C
-    A -->|"Temporary files"| D["Server disk"]
+    W -->|"Upload từng file"| A
+    A -->|"Stream file / ZIP tại chỗ"| C
+    A -->|"Thư mục artifact"| D["Server disk"]
 ```
 
 ## 2. Database nên có 5 bảng
@@ -106,14 +106,16 @@ Có thể lưu URL ảnh gốc trên Google Play, nhưng không lưu binary ản
 
 ### `artifacts`
 
-Chỉ lưu metadata của file ZIP:
+Chỉ lưu metadata của thư mục artifact:
 
-* Tên file.
-* Dung lượng.
-* SHA-256.
+* Tên gọi (dùng để đặt tên file ZIP khi client tải cả cục).
+* Tổng dung lượng.
+* Danh sách file kèm SHA-256 từng file.
 * File nằm ở server nào.
 * Mã locator nội bộ.
-* Thời điểm hết hạn.
+* Thời điểm hết hạn của APK và của cả thư mục.
+
+Không có SHA-256 cho "cả cục", vì ZIP sinh tại chỗ nên mỗi lần một khác. Tính toàn vẹn kiểm theo từng file.
 
 ## 3. SQL schema
 
@@ -173,6 +175,10 @@ create table public.jobs (
 
   include_listing boolean not null default true,
   include_screenshots boolean not null default true,
+
+  -- Xoá APK ngay sau khi client tải xong trọn vẹn (xem artifact_storage.md §7).
+  delete_after_download boolean not null default false,
+
   options jsonb not null default '{}'::jsonb,
 
   status text not null default 'queued'
@@ -235,17 +241,23 @@ create table public.artifacts (
   job_id text not null unique
     references public.jobs(id) on delete cascade,
 
-  kind text not null default 'bundle_zip',
+  kind text not null default 'bundle_dir',
   state text not null default 'preparing'
-    check (state in ('preparing', 'available', 'expired', 'deleted')),
+    check (state in ('preparing', 'available', 'partial', 'expired', 'deleted')),
 
+  -- Tên gọi artifact (không có đuôi). Dùng để đặt tên ZIP khi client tải nhiều file.
   file_name text not null,
-  content_type text not null default 'application/zip',
   size_bytes bigint,
-  sha256 text,
+
+  -- Danh sách file: [{path, sizeBytes, sha256, contentType}]
+  -- Không có sha256 cho "cả cục" vì ZIP sinh tại chỗ, mỗi lần một khác.
+  files jsonb not null default '[]'::jsonb,
 
   storage_backend text not null default 'api_disk',
   locator text,
+
+  -- APK hết hạn sớm hơn phần còn lại: nó chiếm 98% dung lượng.
+  apk_expires_at timestamptz,
   expires_at timestamptz,
 
   created_at timestamptz not null default now(),
@@ -384,6 +396,22 @@ $$;
 
 PostgreSQL functions có thể được gọi qua Supabase RPC. [Supabase Database Functions](https://supabase.com/docs/guides/database/functions)
 
+### Sau khi chạy migration
+
+PostgREST cache schema lúc khởi động. Thêm cột xong mà không báo cho nó thì mọi ghi vào cột mới đều lỗi:
+
+```text
+Could not find the 'delete_after_download' column of 'jobs' in the schema cache
+```
+
+Supabase Cloud tự reload. Với bản self-host thì phải gọi:
+
+```sql
+notify pgrst, 'reload schema';
+```
+
+Hoặc restart container `rest`. Đây là bước bắt buộc sau mỗi migration đổi cấu trúc bảng.
+
 Worker heartbeat khoảng 20–30 giây một lần và gia hạn lease thêm 120 giây. Nếu worker chết, lease hết hạn và worker khác có thể lấy lại task.
 
 ## 5. Endpoint nội bộ dành cho worker
@@ -395,7 +423,8 @@ POST /internal/workers/heartbeat
 POST /internal/jobs/claim
 POST /internal/jobs/{jobId}/heartbeat
 POST /internal/jobs/{jobId}/events
-PUT  /internal/jobs/{jobId}/artifact
+PUT  /internal/jobs/{jobId}/files/{path}
+POST /internal/jobs/{jobId}/artifact/finalize
 POST /internal/jobs/{jobId}/complete
 POST /internal/jobs/{jobId}/fail
 POST /internal/jobs/{jobId}/cancelled
@@ -428,27 +457,35 @@ select * from claim_job('worker_macmini_01', 120);
 
 ## 6. Luồng artifact
 
-Vì job chạy bất đồng bộ, API không thể trả APK ngay trong request `POST /jobs`. ZIP phải được giữ tạm ở đâu đó.
+Vì job chạy bất đồng bộ, API không thể trả APK ngay trong request `POST /jobs`. File phải được giữ tạm ở đâu đó.
 
-Với dự án nhỏ:
+Artifact được lưu dưới dạng **thư mục**, không phải file ZIP. Chi tiết đầy đủ nằm trong `artifact_storage.md`.
 
-1. Worker tạo ZIP.
-2. Worker upload ZIP vào `PUT /internal/jobs/{jobId}/artifact`.
+1. Worker dựng `work/apks/<packageId>/` đúng layout `README.md`.
+2. Worker gửi từng file qua `PUT /internal/jobs/{jobId}/files/{path}`, rồi `POST .../artifact/finalize`.
 3. API lưu tại:
 
 ```text
-/data/app-relay/artifacts/{jobId}/bundle.zip
+/data/app-relay/artifacts/{jobId}/
+├── base.apk
+├── split_config.*.apk
+├── PULL_MANIFEST.txt
+├── package-info.txt
+├── device-dir.listing
+└── playstore/…
 ```
 
 4. API ghi metadata vào bảng `artifacts`.
-5. `POST /jobs/{jobId}/artifact/download-url` tạo URL:
+5. `POST /jobs/{jobId}/artifact/download-url` tạo URL, kèm `select` hoặc `path` nếu client chỉ cần một phần:
 
 ```text
-https://api.example.com/v1/artifacts/{artifactId}/download?exp=...&sig=...
+https://api.example.com/v1/artifacts/{artifactId}/download?select=screenshots&exp=...&sig=...
 ```
 
-6. API kiểm tra chữ ký rồi stream file.
-7. Cron xóa file sau 24–72 giờ và đổi `state = expired`.
+6. API kiểm tra chữ ký rồi stream. Một file thì trả thô; nhiều file thì nén ZIP **khi đang stream**, không lưu lại.
+7. Cron xóa APK sau `APK_TTL_HOURS` (mặc định 6), xóa cả thư mục sau `ARTIFACT_TTL_HOURS` rồi đổi `state = expired`.
+
+Worker không nén gì cả. Nén là việc của API và chỉ xảy ra khi client xin nhiều file.
 
 Không trả trường `locator` hoặc đường dẫn thật cho client.
 
@@ -458,17 +495,19 @@ Không nên đặt phần stream APK/ZIP trong Supabase Edge Functions vì Edge 
 
 | Endpoint                    | Xử lý                                               |
 | --------------------------- | --------------------------------------------------- |
-| `GET /overview`             | Count jobs theo status, apps, workers online/busy   |
+| `GET /system/status`        | Count jobs theo status, workers online/busy/offline |
 | `GET /apps`                 | Đọc bảng `apps`                                     |
 | `POST /jobs`                | Upsert `apps`, insert `jobs`, insert event          |
 | `POST /jobs/batch`          | Tạo `batch_id`, insert nhiều jobs trong transaction |
 | `GET /jobs`                 | Query `jobs`, filter status, phân trang             |
 | `GET /jobs/{id}`            | Job + artifact metadata                             |
 | `GET /jobs/{id}/events`     | Query `job_events`                                  |
+| `GET /jobs/{id}/artifact/files` | Đọc `artifacts.files`                           |
 | `POST /cancel`              | Queued → cancelled; running → cancelling            |
 | `POST /retry`               | Failed → queued, giữ nguyên job ID                  |
 | `POST /download-url`        | Ký URL tải từ API server                            |
-| `GET /workers/fleet-status` | Workers + heartbeat + current job                   |
+
+`/overview` và `/workers/fleet-status` đã bị bỏ, thay bằng `/system/status` (xem `api-endpoint.md`).
 
 ## 8. Có cần Supabase Queues không?
 

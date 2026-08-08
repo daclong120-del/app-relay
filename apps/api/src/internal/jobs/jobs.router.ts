@@ -11,17 +11,26 @@ import {
   CompleteJobRequestSchema,
   FailJobRequestSchema,
   CancelledJobRequestSchema,
+  FinalizeArtifactRequestSchema,
 } from '@app-relay/contracts';
 import { supabase } from '../../database/supabase.js';
 import { requireWorkerAuth } from '../../middleware/auth.js';
+import { jobArtifactDir, normalizeEntryPath, resolveEntry } from '../../utils/artifact-path.js';
+import { hasRoomFor, isDiskLow, listArtifactFiles, recordUpload } from '../../utils/artifact-store.js';
 
 const router = Router();
-const ARTIFACT_DIR = process.env.ARTIFACT_DIR || path.join(process.cwd(), 'artifacts');
 
 // POST /internal/v1/jobs/claim
 router.post('/claim', requireWorkerAuth, async (req: Request, res: Response) => {
   try {
     const body = ClaimJobRequestSchema.parse(req.body);
+
+    // Đĩa thấp thì không giao job mới. Job nằm yên trong `queued` thay vì chạy
+    // hết pipeline emulator rồi mới chết ở bước upload — mất trắng công.
+    if (await isDiskLow()) {
+      console.warn('[Claim] Đĩa dưới ngưỡng dự phòng, tạm ngừng giao job.');
+      return res.status(204).send();
+    }
 
     const { data, error } = await supabase.rpc('claim_job', {
       p_worker_id: body.workerId,
@@ -102,24 +111,57 @@ router.post('/:jobId/events', requireWorkerAuth, async (req: Request, res: Respo
   }
 });
 
-// PUT /internal/v1/jobs/:jobId/artifact (Upload stream ZIP file)
-router.put('/:jobId/artifact', requireWorkerAuth, async (req: Request, res: Response) => {
+// PUT /internal/v1/jobs/:jobId/files/<relative/path>
+//
+// Worker gửi từng file của work/apks/<packageId>/ thay vì một ZIP: API lưu
+// nguyên thư mục nên client lấy được từng file mà không phải giải nén, và xoá
+// riêng APK chỉ là một lệnh rm. Xem new_setup/artifact_storage.md.
+router.put('/:jobId/files/*', requireWorkerAuth, async (req: Request, res: Response) => {
+  let localFilePath: string | null = null;
   try {
     const { jobId } = req.params;
-    const fileName = (req.headers['x-file-name'] as string) || `${jobId}.zip`;
-    const sha256 = req.headers['x-content-sha256'] as string | undefined;
+    const rawPath = (req.params as Record<string, string>)['0'] || '';
 
-    const jobSubDir = path.join(ARTIFACT_DIR, jobId);
-    if (!fs.existsSync(jobSubDir)) {
-      fs.mkdirSync(jobSubDir, { recursive: true });
+    const relPath = normalizeEntryPath(rawPath);
+    const abs = relPath ? resolveEntry(jobId, relPath) : null;
+    if (!relPath || !abs) {
+      return res.status(400).json({
+        error: { code: 'INVALID_PATH', message: `Đường dẫn không hợp lệ: ${rawPath}` },
+      });
+    }
+    localFilePath = abs;
+
+    // Chỉ nhận file cho job đang chạy. Không có chốt này thì worker ghi đè
+    // được artifact của job đã giao xong, khiến nội dung trên đĩa lệch với
+    // `files`/`sha256` mà DB đang công bố cho client.
+    const { data: job } = await supabase.from('jobs').select('status').eq('id', jobId).maybeSingle();
+    if (!job) {
+      return res.status(404).json({ error: { code: 'JOB_NOT_FOUND', message: `Không có job ${jobId}` } });
+    }
+    if (job.status !== 'running') {
+      return res.status(409).json({
+        error: { code: 'JOB_NOT_RUNNING', message: `Job đang ở trạng thái '${job.status}', không nhận upload` },
+      });
     }
 
-    const localFilePath = path.join(jobSubDir, 'bundle.zip');
+    const declaredSha = req.headers['x-content-sha256'] as string | undefined;
+
+    // Từ chối sớm khi đĩa không đủ, thay vì để job chết giữa chừng sau khi đã
+    // tốn hết công emulator.
+    const declaredSize = parseInt(String(req.headers['content-length'] ?? ''), 10);
+    if (Number.isFinite(declaredSize) && !(await hasRoomFor(declaredSize))) {
+      return res.status(507).json({
+        error: { code: 'INSUFFICIENT_STORAGE', message: 'Đĩa API server không đủ chỗ cho file này' },
+      });
+    }
+
+    await fs.promises.mkdir(path.dirname(abs), { recursive: true });
+
     const hash = createHash('sha256');
     let sizeBytes = 0;
 
-    // Hash and measure the body as it streams straight to disk, so a multi-hundred
-    // MB bundle never has to be buffered in memory.
+    // Hash và đo ngay trên luồng đang ghi xuống đĩa, để file vài trăm MB không
+    // bao giờ phải nằm trong bộ nhớ.
     const meter = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
         sizeBytes += chunk.length;
@@ -128,56 +170,109 @@ router.put('/:jobId/artifact', requireWorkerAuth, async (req: Request, res: Resp
       },
     });
 
-    // pipeline() destroys every stream and rejects if the worker aborts mid-upload,
-    // instead of leaving the request hanging on a 'finish' event that never fires.
+    // pipeline() huỷ mọi stream và reject nếu worker đứt giữa chừng, thay vì
+    // treo mãi chờ một sự kiện 'finish' không bao giờ đến.
     try {
-      await pipeline(req, meter, fs.createWriteStream(localFilePath));
+      await pipeline(req, meter, fs.createWriteStream(abs));
     } catch (streamErr: any) {
-      await fs.promises.rm(localFilePath, { force: true }).catch(() => {});
+      await fs.promises.rm(abs, { force: true }).catch(() => {});
       return res.status(400).json({
-        error: {
-          code: 'UPLOAD_INCOMPLETE',
-          message: `Artifact upload failed or was aborted: ${streamErr.message}`,
-        },
+        error: { code: 'UPLOAD_INCOMPLETE', message: `Upload đứt giữa chừng: ${streamErr.message}` },
       });
     }
 
     const calculatedSha256 = hash.digest('hex');
 
-    if (sha256 && sha256.toLowerCase() !== calculatedSha256.toLowerCase()) {
-      await fs.promises.rm(localFilePath, { force: true }).catch(() => {});
+    if (declaredSha && declaredSha.toLowerCase() !== calculatedSha256.toLowerCase()) {
+      await fs.promises.rm(abs, { force: true }).catch(() => {});
       return res.status(400).json({
         error: {
           code: 'SHA256_MISMATCH',
-          message: `Artifact SHA256 checksum mismatch: header=${sha256}, calculated=${calculatedSha256}`,
+          message: `SHA256 lệch: header=${declaredSha}, tính được=${calculatedSha256}`,
         },
       });
     }
 
-    const artifactTtlHours = parseInt(process.env.ARTIFACT_TTL_HOURS || '48', 10);
-    const expiresAt = new Date(Date.now() + artifactTtlHours * 3600 * 1000).toISOString();
+    await recordUpload(jobId, relPath, sizeBytes, calculatedSha256);
+
+    res.json({ status: 'ok', path: relPath, sizeBytes, sha256: calculatedSha256 });
+  } catch (err: any) {
+    if (localFilePath) {
+      await fs.promises.rm(localFilePath, { force: true }).catch(() => {});
+    }
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: err.message } });
+  }
+});
+
+// POST /internal/v1/jobs/:jobId/artifact/finalize
+//
+// Chốt artifact sau khi worker gửi hết file. Trước lệnh này artifact ở
+// state='preparing' và không tải được, nên client không bao giờ vớ phải bản
+// dở dang.
+router.post('/:jobId/artifact/finalize', requireWorkerAuth, async (req: Request, res: Response) => {
+  try {
+    const { jobId } = req.params;
+    const body = FinalizeArtifactRequestSchema.parse(req.body);
+
+    // `workerId` trước đây được nhận rồi bỏ qua. Không đối chiếu thì worker
+    // khác chốt được artifact của job không phải của mình.
+    const { data: job } = await supabase.from('jobs').select('status, worker_id').eq('id', jobId).maybeSingle();
+    if (!job) {
+      return res.status(404).json({ error: { code: 'JOB_NOT_FOUND', message: `Không có job ${jobId}` } });
+    }
+    if (job.worker_id !== body.workerId) {
+      return res.status(409).json({
+        error: {
+          code: 'NOT_JOB_OWNER',
+          message: `Job ${jobId} đang do '${job.worker_id}' giữ, không phải '${body.workerId}'`,
+        },
+      });
+    }
+    if (job.status !== 'running') {
+      return res.status(409).json({
+        error: { code: 'JOB_NOT_RUNNING', message: `Job đang ở trạng thái '${job.status}', không chốt được artifact` },
+      });
+    }
+
+    const dir = jobArtifactDir(jobId);
+    const files = await listArtifactFiles(dir);
+
+    if (files.length !== body.fileCount) {
+      return res.status(400).json({
+        error: {
+          code: 'FILE_COUNT_MISMATCH',
+          message: `Worker báo ${body.fileCount} file nhưng trên đĩa có ${files.length}`,
+        },
+      });
+    }
+
+    const totalSize = files.reduce((sum, f) => sum + f.sizeBytes, 0);
+
+    const apkTtlHours = parseInt(process.env.APK_TTL_HOURS || '6', 10);
+    const artifactTtlHours = parseInt(process.env.ARTIFACT_TTL_HOURS || '720', 10);
+    const now = Date.now();
 
     const { error } = await supabase.from('artifacts').upsert([
       {
         job_id: jobId,
-        kind: 'bundle_zip',
+        kind: 'bundle_dir',
         state: 'available',
-        file_name: fileName,
-        content_type: 'application/zip',
-        size_bytes: sizeBytes,
-        sha256: calculatedSha256,
+        file_name: body.fileName,
+        size_bytes: totalSize,
+        files,
         storage_backend: 'api_disk',
-        locator: path.join(jobId, 'bundle.zip'),
-        expires_at: expiresAt,
+        locator: jobId,
+        apk_expires_at: new Date(now + apkTtlHours * 3600 * 1000).toISOString(),
+        expires_at: new Date(now + artifactTtlHours * 3600 * 1000).toISOString(),
         updated_at: new Date().toISOString(),
       },
     ], { onConflict: 'job_id' });
 
     if (error) throw error;
 
-    res.json({ status: 'ok', sizeBytes });
+    res.json({ status: 'ok', fileCount: files.length, sizeBytes: totalSize });
   } catch (err: any) {
-    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: err.message } });
+    res.status(400).json({ error: { code: 'BAD_REQUEST', message: err.message } });
   }
 });
 

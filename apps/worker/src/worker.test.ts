@@ -5,8 +5,8 @@ import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { getInstalledPaths } from './android/adb.js';
 import { triggerPlayStoreInstall, getEstimatedInstallCoordinates } from './pipeline/installer.js';
-import { packageWorkDirToZip } from './pipeline/packager.js';
 import { validateZipArchive } from './pipeline/puller.js';
+import { isApkPath, selectorFor, selectorMatches } from '@app-relay/contracts';
 
 describe('Worker Unit & Pipeline Tests', () => {
   it('verifies default worker configuration defaults', () => {
@@ -38,21 +38,42 @@ describe('Worker Unit & Pipeline Tests', () => {
     });
   });
 
-  describe('packager module ZIP creation', () => {
-    it('creates zip archive from target directory', async () => {
-      const testDir = path.join(process.cwd(), 'work', 'test_pkg_dir');
-      await fs.mkdir(testDir, { recursive: true });
-      await fs.writeFile(path.join(testDir, 'base.apk'), 'fake-apk-binary-content');
+  describe('artifact selectors', () => {
+    it('phân loại đúng file APK và file listing', () => {
+      assert.strictEqual(selectorFor('base.apk'), 'apk.base');
+      assert.strictEqual(selectorFor('split_config.arm64_v8a.apk'), 'apk.splits');
+      assert.strictEqual(selectorFor('split_config.xxhdpi.apk'), 'apk.splits');
+      assert.strictEqual(selectorFor('playstore/screenshots/screenshot_01.png'), 'screenshots');
+      assert.strictEqual(selectorFor('playstore/icon.png'), 'listing');
+      assert.strictEqual(selectorFor('playstore/page.html'), 'listing.full');
+      assert.strictEqual(selectorFor('PULL_MANIFEST.txt'), 'metadata');
+    });
 
-      try {
-        const result = await packageWorkDirToZip(testDir, 'com.test.app');
-        assert.strictEqual(result.fileName, 'com.test.app.zip');
-        assert.ok(existsSync(result.zipFilePath));
-        assert.ok(result.sha256.length === 64);
-      } finally {
-        await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
-        await fs.rm(path.join(process.cwd(), 'work', 'com.test.app.zip'), { force: true }).catch(() => {});
+    it("'apk' gom cả base lẫn split, không dính file khác", () => {
+      assert.ok(selectorMatches('base.apk', 'apk'));
+      assert.ok(selectorMatches('split_config.arm64_v8a.apk', 'apk'));
+      assert.ok(!selectorMatches('playstore/icon.png', 'apk'));
+      assert.ok(!selectorMatches('package-info.txt', 'apk'));
+    });
+
+    it("'all' khớp mọi file", () => {
+      for (const p of ['base.apk', 'playstore/icon.png', 'PULL_MANIFEST.txt']) {
+        assert.ok(selectorMatches(p, 'all'));
       }
+    });
+
+    it('không nhầm file có tên gần giống split thành split', () => {
+      // Đây là những cái tên sẽ lọt nếu dùng startsWith('split_config') thay vì regex.
+      assert.ok(!selectorMatches('split_config.arm64_v8a.apk.bak', 'apk.splits'));
+      assert.ok(!selectorMatches('playstore/split_config.x.apk', 'apk.splits'));
+      assert.ok(!isApkPath('base.apk.txt'));
+    });
+
+    it('APK được nhận diện đúng để áp TTL riêng', () => {
+      assert.ok(isApkPath('base.apk'));
+      assert.ok(isApkPath('split_config.xxhdpi.apk'));
+      assert.ok(!isApkPath('playstore/screenshots/screenshot_01.png'));
+      assert.ok(!isApkPath('package-info.txt'));
     });
   });
 

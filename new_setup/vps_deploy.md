@@ -354,7 +354,7 @@ Android Emulator x86/x86_64 trên Linux dựa vào KVM để tăng tốc. [Andro
 | AVD `chpay`             | Volume `android-home`  |
 | Tài khoản Google Play   | Volume `android-home`  |
 | APK worker đang xử lý   | Volume `worker-work`   |
-| ZIP chờ người gọi tải   | Volume `api-artifacts` |
+| Thư mục artifact chờ tải | Volume `api-artifacts` |
 | Job metadata            | Supabase               |
 
 Không chạy:

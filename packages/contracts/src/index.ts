@@ -20,7 +20,6 @@ export const StepSchema = z.enum([
   'pulling_apk',
   'creating_manifest',
   'validating',
-  'packaging',
   'uploading_artifact',
 ]);
 export type CurrentStep = z.infer<typeof StepSchema>;
@@ -36,6 +35,7 @@ export const CreateJobRequestSchema = z.object({
   playUrl: z.string().url(),
   includeListing: z.boolean().default(true),
   includeScreenshots: z.boolean().default(true),
+  deleteAfterDownload: z.boolean().default(false),
   options: z.record(z.unknown()).optional(),
 });
 export type CreateJobRequest = z.infer<typeof CreateJobRequestSchema>;
@@ -44,6 +44,7 @@ export const CreateBatchJobRequestSchema = z.object({
   urls: z.array(z.string().url()).min(1),
   includeListing: z.boolean().default(true),
   includeScreenshots: z.boolean().default(true),
+  deleteAfterDownload: z.boolean().default(false),
   options: z.record(z.unknown()).optional(),
 });
 export type CreateBatchJobRequest = z.infer<typeof CreateBatchJobRequestSchema>;
@@ -127,3 +128,79 @@ export const CancelledJobRequestSchema = z.object({
   reason: z.string().optional(),
 });
 export type CancelledJobRequest = z.infer<typeof CancelledJobRequestSchema>;
+
+export const FinalizeArtifactRequestSchema = z.object({
+  workerId: z.string(),
+  fileName: z.string(),
+  fileCount: z.number().int().min(1),
+});
+export type FinalizeArtifactRequest = z.infer<typeof FinalizeArtifactRequestSchema>;
+
+// ── Artifact selectors ────────────────────────────────────────────────
+// Từ vựng theo ý nghĩa, không theo tên file, để đổi layout không vỡ client.
+
+export const ArtifactSelectorSchema = z.enum([
+  'all',
+  'apk',
+  'apk.base',
+  'apk.splits',
+  'screenshots',
+  'listing',
+  'listing.full',
+  'metadata',
+]);
+export type ArtifactSelector = z.infer<typeof ArtifactSelectorSchema>;
+
+export const DownloadUrlRequestSchema = z
+  .object({
+    select: ArtifactSelectorSchema.default('all'),
+    path: z.string().optional(),
+  })
+  .refine((v) => !(v.path && v.select !== 'all'), {
+    message: 'Chỉ được truyền một trong hai: `select` hoặc `path`',
+  });
+export type DownloadUrlRequest = z.infer<typeof DownloadUrlRequestSchema>;
+
+const LISTING_FILES = ['playstore/description.md', 'playstore/listing.json', 'playstore/icon.png'];
+const METADATA_FILES = ['PULL_MANIFEST.txt', 'package-info.txt', 'device-dir.listing'];
+
+/** Đường dẫn `p` (tương đối, dùng `/`) có thuộc nhóm `selector` không. */
+export function selectorMatches(p: string, selector: ArtifactSelector): boolean {
+  const isBase = p === 'base.apk';
+  const isSplit = /^split_config\.[^/]+\.apk$/.test(p);
+
+  switch (selector) {
+    case 'all':
+      return true;
+    case 'apk':
+      return isBase || isSplit;
+    case 'apk.base':
+      return isBase;
+    case 'apk.splits':
+      return isSplit;
+    case 'screenshots':
+      return p.startsWith('playstore/screenshots/');
+    case 'listing':
+      return LISTING_FILES.includes(p);
+    case 'listing.full':
+      return LISTING_FILES.includes(p) || p === 'playstore/page.html';
+    case 'metadata':
+      return METADATA_FILES.includes(p);
+  }
+}
+
+/** Nhóm "chính" chứa file này — dùng để gợi ý trong `/artifact/files`. */
+export function selectorFor(p: string): ArtifactSelector {
+  if (p === 'base.apk') return 'apk.base';
+  if (/^split_config\.[^/]+\.apk$/.test(p)) return 'apk.splits';
+  if (p.startsWith('playstore/screenshots/')) return 'screenshots';
+  if (LISTING_FILES.includes(p)) return 'listing';
+  if (p === 'playstore/page.html') return 'listing.full';
+  if (METADATA_FILES.includes(p)) return 'metadata';
+  return 'all';
+}
+
+/** APK chiếm ~98% dung lượng nên có TTL riêng, ngắn hơn hẳn phần còn lại. */
+export function isApkPath(p: string): boolean {
+  return p === 'base.apk' || /^split_config\.[^/]+\.apk$/.test(p);
+}
