@@ -17,9 +17,13 @@ build/
 *.tsbuildinfo
 
 # Work & Artifact directories
+# Anchored with a leading slash: an unanchored `artifacts/` also matches source
+# directories like apps/api/src/modules/artifacts/, silently excluding real code
+# from the repository.
 apps/worker/work/
 apps/api/data/
-artifacts/
+/artifacts/
+apps/api/artifacts/
 
 # OS & Editor files
 .DS_Store
