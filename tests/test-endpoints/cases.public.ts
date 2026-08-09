@@ -1,6 +1,11 @@
 import type { Harness } from './harness.js';
 
-const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.zing.zalo';
+// Package id cố ý KHÔNG có thật. `POST /jobs` upsert vào bảng `apps`, và
+// `complete` ghi đè cả metadata — dùng id thật thì bộ test sẽ phá dữ liệu app
+// thật, đúng như đã xảy ra một lần với com.zing.zalo.
+const TEST_PACKAGE = 'com.apprelay.endpointtest';
+const PLAY_URL = `https://play.google.com/store/apps/details?id=${TEST_PACKAGE}`;
+const PLAY_URL_2 = 'https://play.google.com/store/apps/details?id=com.apprelay.endpointtest2';
 
 export interface PublicState {
   /** Job vừa tạo, dùng cho các test sau. Bị huỷ ở bước dọn dẹp. */
@@ -105,7 +110,7 @@ export async function runPublicCases(h: Harness, state: PublicState): Promise<vo
     const res = await h.json('/jobs/batch', {
       auth: 'api',
       body: JSON.stringify({
-        urls: [PLAY_URL, 'https://play.google.com/store/apps/details?id=com.facemoji.lite'],
+        urls: [PLAY_URL, PLAY_URL_2],
         includeListing: false,
         includeScreenshots: false,
       }),
@@ -127,11 +132,17 @@ export async function runPublicCases(h: Harness, state: PublicState): Promise<vo
     h.check(Array.isArray(res.body?.data), 'data là mảng');
     h.fields(res.body?.pagination, ['page', 'pageSize', 'total'], 'pagination');
 
-    const byStatus = await h.json('/jobs?status=completed', { auth: 'api' });
+    const byStatus = await h.json('/jobs?status=completed&pageSize=50', { auth: 'api' });
     h.status(byStatus, 200, 'lọc status');
-    const wrongStatus = (byStatus.body?.data ?? []).filter((j: any) => j.status !== 'completed');
+    const completed = byStatus.body?.data ?? [];
+    const wrongStatus = completed.filter((j: any) => j.status !== 'completed');
     h.check(wrongStatus.length === 0, 'lọc status trả đúng', `${wrongStatus.length} job sai status`);
-    state.completedJobId = byStatus.body?.data?.[0]?.jobId;
+
+    // Ưu tiên job có APK thật cho nhóm artifact. Lấy bừa job completed mới nhất
+    // là dễ vớ phải artifact một-file do chính bộ test này để lại từ lần trước,
+    // và khi đó `select=apk` không có gì để trả.
+    const real = completed.find((j: any) => (j.resultSummary?.splitCount ?? 0) > 0);
+    state.completedJobId = (real ?? completed[0])?.jobId;
 
     const byPkg = await h.json('/jobs?packageId=com.zing.zalo', { auth: 'api' });
     h.status(byPkg, 200, 'lọc packageId');

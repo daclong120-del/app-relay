@@ -1,7 +1,10 @@
 import { createHash } from 'crypto';
 import type { Harness } from './harness.js';
 
-const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.zing.zalo';
+// Package id cố ý KHÔNG có thật: `complete` upsert vào bảng `apps`, nên dùng id
+// thật sẽ ghi đè metadata của app thật bằng dữ liệu test.
+const TEST_PACKAGE = 'com.apprelay.endpointtest';
+const PLAY_URL = `https://play.google.com/store/apps/details?id=${TEST_PACKAGE}`;
 const TEST_WORKER = 'worker_endpoint_test';
 
 /** Trả job đang giữ về hàng đợi, giữ nguyên trạng thái queued. */

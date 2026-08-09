@@ -10,6 +10,7 @@
     "test": "pnpm --recursive run test",
     "test:endpoints": "tsx tests/test-endpoints/run.ts",
     "test:endpoints:typecheck": "tsc --noEmit -p tests/test-endpoints",
+    "probe:endpoints": "tsx tests/test-endpoints/probe/run.ts",
     "download:artifacts": "tsx tests/test-endpoints/download-all.ts"
   },
   "devDependencies": {

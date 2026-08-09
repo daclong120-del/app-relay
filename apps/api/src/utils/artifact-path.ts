@@ -79,7 +79,19 @@ const CONTENT_TYPES: Record<string, string> = {
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
   '.json': 'application/json',
-  '.html': 'text/html; charset=utf-8',
+
+  // Cố ý KHÔNG khai là text/html.
+  //
+  // CDN đứng trước API viết lại nội dung text/html trên đường truyền:
+  // Cloudflare bật sẵn Email Address Obfuscation, nó chèn
+  // /cdn-cgi/scripts/…/email-decode.min.js và thay địa chỉ email bằng
+  // /cdn-cgi/l/email-protection. Đo được: page.html của Zalo phình từ
+  // 1.185.094 lên 1.185.454 byte và sha256 lệch hoàn toàn.
+  //
+  // page.html sinh ra để client re-parse listing gốc, nên nó phải tới nơi
+  // nguyên vẹn từng byte. Khai là octet-stream thì CDN để yên.
+  '.html': 'application/octet-stream',
+
   '.md': 'text/markdown; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8',
   '.listing': 'text/plain; charset=utf-8',
