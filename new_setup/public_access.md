@@ -31,7 +31,7 @@ Quick tunnel không cần đăng ký, không cần token. Đổi URL mỗi lần
 
 ## 3. Cấu hình
 
-`deploy/compose.tunnel.yaml` thêm một service duy nhất, nằm chung network `app-relay`:
+`deploy/compose.tunnel.yaml` thêm service `cloudflared`, nằm chung network `app-relay`.
 
 Cả hai chế độ đều nằm sau profile riêng, nên không bao giờ chạy nhầm cả hai cùng lúc.
 
@@ -92,7 +92,7 @@ Chênh tới 3000 lần. Xem `artifact_storage.md`.
 
 ## 6. Đưa gì cho đối tác
 
-Đúng hai dòng, như `call_endpoint.md`:
+Đúng hai dòng, như phần đầu `api-endpoint.md`:
 
 ```text
 URL: https://api.tenmien.com/v1
