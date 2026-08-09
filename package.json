@@ -9,7 +9,8 @@
     "typecheck": "pnpm --recursive run typecheck",
     "test": "pnpm --recursive run test",
     "test:endpoints": "tsx tests/test-endpoints/run.ts",
-    "test:endpoints:typecheck": "tsc --noEmit -p tests/test-endpoints"
+    "test:endpoints:typecheck": "tsc --noEmit -p tests/test-endpoints",
+    "download:artifacts": "tsx tests/test-endpoints/download-all.ts"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
