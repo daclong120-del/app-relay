@@ -43,7 +43,13 @@ services:
       - named
     # Token mang sẵn cấu hình hostname và route, tạo ở Cloudflare Dashboard →
     # Zero Trust → Networks → Tunnels. Public hostname trỏ về http://api:3000.
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?cần CLOUDFLARE_TUNNEL_TOKEN trong deploy/.env}
+    #
+    # Truyền qua biến môi trường chứ không nhét vào `command`: compose nội suy
+    # command của MỌI service kể cả service không thuộc profile đang bật, nên
+    # một `${VAR:?}` ở đây sẽ chặn luôn cả việc chạy quick tunnel.
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    command: tunnel --no-autoupdate run
     depends_on:
       api:
         condition: service_healthy
