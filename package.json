@@ -7,9 +7,12 @@
     "dev:api": "pnpm --filter api dev",
     "dev:worker": "pnpm --filter worker dev",
     "typecheck": "pnpm --recursive run typecheck",
-    "test": "pnpm --recursive run test"
+    "test": "pnpm --recursive run test",
+    "test:endpoints": "tsx tests/test-endpoints/run.ts",
+    "test:endpoints:typecheck": "tsc --noEmit -p tests/test-endpoints"
   },
   "devDependencies": {
+    "@types/node": "^20.11.0",
     "@types/pg": "^8.21.0",
     "pg": "^8.22.0",
     "tsx": "^4.7.1",

@@ -34,3 +34,5 @@ Thumbs.db
 # Local tools & SDKs
 tools/
 cmdline-tools/
+# Output cua bo test endpoint (tests/test-endpoints)
+/work/
