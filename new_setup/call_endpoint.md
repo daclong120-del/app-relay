@@ -65,7 +65,25 @@ Người gọi không cần biết:
 * Địa chỉ worker.
 * Android SDK/JDK.
 * VPS IP nếu đã có domain.
+* Cloudflare Tunnel hay Caddy đứng trước API.
 * Tài khoản Google Play.
+
+## Điều nên nói với đối tác
+
+**Job chạy tuần tự trên một emulator**, mỗi job khoảng 60 giây. Gửi 20 URL là mất khoảng 20 phút, và nếu có bên khác đang gửi thì phải xếp hàng sau. Đừng thiết kế client theo kiểu gọi xong chờ ngay.
+
+**Đừng tải cả cục nếu không cần APK.** Chênh lệch rất lớn:
+
+| Cần gì | `select` | Zalo |
+| --- | --- | --- |
+| metadata | `listing` | 24 KB |
+| ảnh listing | `screenshots` | 1.2 MB |
+| APK chính | `apk.base` | 68.6 MB |
+| tất cả | bỏ trống | 73 MB |
+
+**Link tải sống 10 phút**, hết hạn thì gọi lại `download-url`, file vẫn còn. **APK chỉ được giữ 6 tiếng** sau khi job xong; quá hạn thì phần nhẹ vẫn tra được nhưng muốn APK phải chạy job mới.
+
+**Tải file lớn nên dùng `Range`** để resume khi đứt mạng, thay vì tải lại 68 MB từ đầu.
 
 Chỉ cần nhận:
 

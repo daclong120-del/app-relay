@@ -1,10 +1,13 @@
 Chốt kiến trúc deploy gọn nhất:
 
-* `caddy`: HTTPS và domain (dành cho VPS production profile).
+* `caddy`: HTTPS và domain (dành cho VPS có IP tĩnh — profile production).
+* `cloudflared`: mở API ra ngoài khi **không** có IP public, thay cho `caddy`. Xem `public_access.md`.
 * `api`: endpoint public/internal, Supabase và artifact (chạy trực tiếp port 3000 trên WSL 2).
 * `worker`: Node worker + JDK + Android SDK + emulator có GUI + noVNC.
 * Không cần cài Android Studio trên server.
 * GUI emulator mở bằng trình duyệt (port 6080) để đăng nhập CH Play.
+
+`caddy` và `cloudflared` là hai cách thay thế nhau, không bật cùng lúc.
 
 ## 1. Cấu trúc repository
 
@@ -45,17 +48,21 @@ app-relay/
 └── package.json
 ```
 
-## 2. Ba container
+## 2. Các container
 
-| Container | Chức năng                                      |
-| --------- | ---------------------------------------------- |
-| `caddy`   | Nhận HTTPS, chuyển request vào API (production profile) |
-| `api`     | Endpoint, Supabase, stream artifact (Port 3000) |
-| `worker`  | Emulator GUI, CH Play, adb và pipeline kéo APK |
+| Container     | Chức năng                                               | Khi nào bật |
+| ------------- | ------------------------------------------------------- | ----------- |
+| `api`         | Endpoint, Supabase, stream artifact (Port 3000)          | luôn luôn   |
+| `worker`      | Emulator GUI, CH Play, adb và pipeline kéo APK           | luôn luôn   |
+| `caddy`       | Nhận HTTPS, chuyển request vào API                       | VPS có IP tĩnh (`--profile production`) |
+| `cloudflared` | Tunnel ra Cloudflare, không cần IP public                | máy cá nhân / WSL / VPS sau NAT |
+
+Hai container cuối thay thế nhau. Chi tiết tunnel nằm trong `public_access.md`.
 
 ```mermaid
 flowchart TD
-    U["Người gọi API"] --> A["API :3000"]
+    U["Người gọi API"] -->|"HTTPS"| E["caddy hoặc cloudflared"]
+    E --> A["API :3000"]
     W["Worker + Emulator GUI"] --> A
     W --> K["Host /dev/kvm"]
     A --> S["Supabase"]

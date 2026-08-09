@@ -6,7 +6,7 @@ API, worker và reverse proxy chạy thành container riêng.
 
 ```mermaid
 flowchart TD
-    C["Client"] -->|"HTTPS"| P["Caddy / Nginx"]
+    C["Client"] -->|"HTTPS"| P["Caddy (IP tĩnh)<br/>hoặc cloudflared (tunnel)"]
     P --> A["API container"]
     W["Worker container<br/>Android Emulator"] --> A
     A --> S["Supabase"]
@@ -61,13 +61,19 @@ app-relay/
 │
 ├── deploy/
 │   ├── compose.yml
+│   ├── compose.kvm.yaml          # thêm /dev/kvm cho worker
+│   ├── compose.supabase.yaml     # Supabase self-host local
+│   ├── compose.tunnel.yaml       # Cloudflare Tunnel
 │   ├── .env.example
+│   ├── supabase-local/
 │   └── caddy/
 │       └── Caddyfile
 │
 ├── pnpm-workspace.yaml
 └── package.json
 ```
+
+Các file `compose.*.yaml` là lớp phủ, chồng lên `compose.yml` bằng nhiều cờ `-f`. Chỉ bật đúng thứ môi trường đó cần.
 
 ## JDK và Android SDK nằm ở đâu?
 
@@ -222,6 +228,27 @@ DELETE_AFTER_DOWNLOAD_GRACE_MINUTES=10
 
 DOWNLOAD_SIGNING_SECRET=xxxxx
 DOWNLOAD_URL_TTL_SECONDS=600
+```
+
+## Biến môi trường dùng chung
+
+`deploy/.env` — compose đọc để thay biến, không phải biến của ứng dụng:
+
+```env
+# Lấy bằng: getent group kvm | cut -d: -f3
+KVM_GID=993
+
+# Chỉ khi dùng Supabase self-host local
+POSTGRES_PASSWORD=xxxxx
+AUTHENTICATOR_PASSWORD=xxxxx
+JWT_SECRET=xxxxx
+
+# Chỉ khi dùng named tunnel (xem public_access.md)
+CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoi...
+
+# Chỉ khi dùng Caddy trên VPS có IP tĩnh
+DOMAIN=api.tenmiencuamay.com
+CADDY_EMAIL=admin@tenmiencuamay.com
 ```
 
 ## Biến môi trường worker

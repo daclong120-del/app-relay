@@ -455,3 +455,12 @@ Tổng cộng:
 * Không có endpoint upload ảnh hoặc APK lên Supabase.
 * Không cho worker truy cập Supabase trực tiếp.
 * Không lưu file ZIP trên đĩa; ZIP chỉ sinh khi stream.
+* Không có giới hạn tốc độ hay hạn ngạch theo từng người gọi — mọi đối tác dùng chung một `API_TOKEN`. Cân nhắc trước khi mở public (xem `public_access.md`).
+
+Toàn bộ 23 endpoint trên có bộ test đối chiếu với chính tài liệu này:
+
+```bash
+pnpm test:endpoints
+```
+
+Nó kiểm tra shape response, trường bắt buộc, quy tắc token và các ca phải bị từ chối; báo cáo ghi ra `work/endpoint-report.md`.
