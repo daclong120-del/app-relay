@@ -1,0 +1,78 @@
+Không chạy gì cả, chỉ đưa lệnh. Làm theo thứ tự này.
+
+Bước 1 — Từ PowerShell trên Windows
+Nguyên nhân hay gặp nhất là WSL tự tắt distro. Bật lại và giữ cho nó không tắt nữa:
+
+
+wsl -d Ubuntu-24.04 -u root -- systemctl is-active docker
+
+Start-Process -FilePath "wsl.exe" `
+  -ArgumentList '-d','Ubuntu-24.04','-u','root','--','sleep','infinity' `
+  -WindowStyle Hidden
+Lệnh thứ hai là tiến trình giữ distro sống. Không có nó thì mọi thứ sẽ chết lại y như lần trước.
+
+Bước 2 — Vào WSL
+
+wsl -d Ubuntu-24.04 -u root
+Từ đây trở đi gõ trong WSL.
+
+Bước 3 — Đặt biến cho gọn
+
+cd /opt/app-relay/deploy
+C="docker compose -f compose.yml -f compose.kvm.yaml -f compose.supabase.yaml -f compose.tunnel.yaml --profile quick"
+Bước 4 — Xem tình hình
+
+systemctl status docker --no-pager | head -5
+$C ps
+Nếu docker chưa chạy:
+
+
+systemctl start docker
+Bước 5 — Khởi động lại stack
+
+$C up -d
+Nếu container nào kẹt thì ép tạo lại:
+
+
+$C up -d --force-recreate
+Bước 6 — Lấy URL mới
+URL sẽ đổi. Quick tunnel sinh tên ngẫu nhiên mỗi lần khởi động, nên arrived-ave-circus-palmer không còn dùng được:
+
+
+sleep 15
+$C logs cloudflared-quick | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1
+Bước 7 — Kiểm tra
+
+curl -s http://127.0.0.1:3000/v1/health; echo
+
+T=$(grep '^API_TOKEN=' .env.api | cut -d= -f2-)
+curl -s -H "Authorization: Bearer $T" http://127.0.0.1:3000/v1/system/status; echo
+Mong đợi {"status":"ok",...} và "database":"ok".
+
+Bước 8 — Chờ emulator
+Mất khoảng 2 phút:
+
+
+$C exec -T worker /opt/android-sdk/platform-tools/adb devices
+$C exec -T worker /opt/android-sdk/platform-tools/adb shell getprop sys.boot_completed
+Ra 1 là xong. Kiểm tra tài khoản Play còn không:
+
+
+$C exec -T worker /opt/android-sdk/platform-tools/adb shell dumpsys account | grep 'Accounts:'
+Ra Accounts: 1 là còn. Ra 0 thì phải đăng nhập lại qua http://localhost:6080/vnc.html.
+
+Nếu vẫn hỏng
+
+$C logs --tail 50 api
+$C logs --tail 50 worker
+journalctl -u docker --since "-30 min" --no-pager | tail -30
+df -h /
+free -h
+Ba điều tuyệt đối tránh
+Đừng dùng down -v. Cờ -v xoá volume, mất luôn AVD và phiên đăng nhập CH Play. Muốn dừng thì $C stop, muốn xoá container thì $C down (không có -v).
+
+Đừng chạy song song stack trên Docker Desktop. Các distro WSL2 dùng chung network namespace nên sẽ tranh cổng 3000, 6080, 54322.
+
+URL cũ đã chết. Sau khi có URL mới ở bước 6, phải cập nhật lại new_setup/api-endpoint.md và báo đối tác.
+
+Nếu chạy xong mà vẫn lỗi, dán output của bước 4 và phần "Nếu vẫn hỏng" vào đây, tao đọc rồi chỉ tiếp. Hoặc nói một tiếng là tao tự chạy chẩn đoán.

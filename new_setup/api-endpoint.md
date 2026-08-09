@@ -14,7 +14,7 @@ Không có dashboard endpoint, không có user/auth/account endpoint, không có
 ## 1.1. Chỉ cần 2 giá trị
 
 ```env
-BASE_URL=https://arrived-ave-circus-palmer.trycloudflare.com/v1
+BASE_URL=https://acquisitions-prompt-reduction-county.trycloudflare.com/v1
 API_TOKEN=apr_live_8b1444e26673fa97a0adab84fcd785a871b4cea6d8f31f35
 ```
 
@@ -34,7 +34,7 @@ Người gọi không cần biết: Supabase, địa chỉ worker, Android SDK/J
 Job chạy bất đồng bộ nên không có chuyện một request là có file ngay. Bốn bước:
 
 ```bash
-BASE_URL=https://arrived-ave-circus-palmer.trycloudflare.com/v1
+BASE_URL=https://acquisitions-prompt-reduction-county.trycloudflare.com/v1
 API_TOKEN=apr_live_8b1444e26673fa97a0adab84fcd785a871b4cea6d8f31f35
 
 # 1. Đặt hàng. Idempotency-Key để gửi lại lúc mạng lỗi không tạo job trùng.
@@ -125,7 +125,7 @@ Nhiều file → gói ZIP khi đang stream, không có `Content-Length`.
 | `403` khi tải | link hết hạn hoặc chữ ký sai | gọi lại `download-url` |
 | `404` | job / app / file không tồn tại | không thử lại |
 | `400` | body sai, URL thiếu `?id=`, selector lạ, **thao tác sai trạng thái** (retry job chưa failed, cancel job đã xong) | sửa request |
-| `410` | file không còn — APK đã quá hạn 6 tiếng | chạy job mới |
+| `410` | file không còn — APK đã quá hạn lưu trữ | chạy job mới |
 | `416` | `Range` vượt kích thước file | bỏ header `Range` |
 
 Thân lỗi luôn cùng một dạng; phân nhánh theo `error.code`, đừng đọc `message`:
@@ -140,7 +140,7 @@ Thân lỗi luôn cùng một dạng; phân nhánh theo `error.code`, đừng đ
 
 **Link tải sống 10 phút.** Hết hạn thì gọi lại `download-url`, file vẫn còn.
 
-**APK chỉ giữ 6 tiếng** sau khi job xong. Quá hạn thì listing, ảnh và metadata vẫn tra được, nhưng muốn APK phải chạy job mới.
+**APK giữ 7 ngày** sau khi job xong (`APK_TTL_HOURS`, mặc định repo là 6 tiếng). Quá hạn thì listing, ảnh và metadata vẫn tra được, nhưng muốn APK phải chạy job mới.
 
 **Tải file lớn nên dùng `Range`** để resume khi đứt mạng, thay vì tải lại 68 MB từ đầu.
 
