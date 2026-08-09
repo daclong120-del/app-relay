@@ -25,10 +25,15 @@ services:
       - "127.0.0.1:54322:5432"
     volumes:
       - supabase-db:/var/lib/postgresql/data
-      # Ordered init: roles, then the project schema, then the grants that
-      # depend on the tables the schema created.
+      # Ordered init: roles, then MỌI migration theo thứ tự tên, rồi grants
+      # (phải chạy sau vì cần bảng đã tồn tại).
+      #
+      # Mount cả thư mục migrations thay vì trỏ cứng vào 001: trước đây thêm
+      # migration mới mà quên sửa compose thì deploy sạch im lặng chạy với
+      # schema cũ, và API chết khi đụng cột mới.
       - ./supabase-local/00-roles.sh:/docker-entrypoint-initdb.d/00-roles.sh:ro
-      - ../supabase/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./supabase-local/01-migrations.sh:/docker-entrypoint-initdb.d/01-migrations.sh:ro
+      - ../supabase/migrations:/migrations:ro
       - ./supabase-local/02-grants.sql:/docker-entrypoint-initdb.d/02-grants.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
