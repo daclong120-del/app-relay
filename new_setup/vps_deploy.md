@@ -271,6 +271,47 @@ Sau khi đăng nhập:
 
 ## 8. Trên WSL
 
+### WSL tự tắt distro — phải có keepalive
+
+Đây là khác biệt lớn nhất giữa WSL và VPS thật, và nó sẽ cắn bất kỳ ai bỏ qua.
+
+WSL2 thu hồi distro khi không còn tiến trình nào từ phía Windows giữ nó sống. Lúc đó systemd trong distro nhận lệnh tắt máy thật sự:
+
+```text
+systemd[1]: Reached target poweroff.target - System Power Off
+systemd[1]: Shutting down
+```
+
+Docker daemon tắt theo, mọi container dừng. Lần sau gõ lệnh vào distro thì nó boot lại, container bật lại (`restart: unless-stopped`) và **emulator boot lại từ đầu**. Hậu quả thực tế: đang đăng nhập CH Play thì mất phiên, job đang chạy đứt giữa chừng.
+
+Dấu hiệu nhận biết — mọi thứ đều "sạch", không có gì crash:
+
+```text
+RestartCount=0   OOMKilled=false   NRestarts=0
+```
+
+Giữ distro sống bằng một tiến trình chạy nền trên Windows:
+
+```powershell
+Start-Process -FilePath "wsl.exe" `
+  -ArgumentList '-d','Ubuntu-24.04','-u','root','--','sleep','infinity' `
+  -WindowStyle Hidden
+```
+
+Muốn dùng WSL làm server thật thì đăng ký lệnh trên vào Task Scheduler chạy lúc boot Windows. Không có nó thì mỗi lúc máy rảnh là cả stack chết.
+
+### Các distro WSL2 dùng chung network namespace
+
+Không chạy song song được stack dev (Docker Desktop) và stack server (Docker Engine trong WSL): hai bên tranh nhau cổng `3000`, `6080`, `54322`. Dừng bên kia trước:
+
+```bash
+docker compose -f compose.yml -f compose.kvm.yaml -f compose.supabase.yaml stop
+```
+
+Dùng `stop`, không dùng `down -v` — volume và phiên đăng nhập CH Play nằm nguyên đó.
+
+### noVNC
+
 Nếu Docker chạy trong WSL, mở trực tiếp:
 
 ```text
@@ -376,6 +417,34 @@ git clone <repository-url> .
 
 cp deploy/.env.api.example .env.api
 cp deploy/.env.worker.example .env.worker
+```
+
+Nếu repo **private** thì `git clone` qua HTTPS sẽ **treo vô hạn** chờ nhập mật khẩu — không báo lỗi, không timeout, chỉ đứng im. Chạy trong script tự động là treo luôn. Dùng một trong hai:
+
+```bash
+# deploy key (SSH) — khuyến nghị
+git clone git@github.com:<owner>/<repo>.git .
+
+# hoặc token, và tắt hẳn prompt để lỗi xác thực fail ngay thay vì treo
+GIT_TERMINAL_PROMPT=0 git clone https://<token>@github.com/<owner>/<repo>.git .
+```
+
+### Migration
+
+Init script của Postgres **chỉ chạy khi thư mục dữ liệu còn trống**. Nghĩa là:
+
+* Deploy mới: mọi migration trong `supabase/migrations/` được áp tự động theo thứ tự tên.
+* Deploy đã tồn tại: thêm migration mới thì phải chạy tay.
+
+```bash
+SUPABASE_DB_URL=postgres://postgres:<pass>@127.0.0.1:54322/postgres \
+  pnpm exec tsx scripts/db-migrate.ts --apply
+```
+
+Sau đó bắt PostgREST nạp lại schema, nếu không mọi ghi vào cột mới đều lỗi:
+
+```sql
+notify pgrst, 'reload schema';
 ```
 
 Lấy KVM group ID:
