@@ -1,0 +1,51 @@
+# Mở API ra Internet bằng Cloudflare Tunnel.
+#
+# Thay cho `caddy`, không chạy cùng. Tunnel kết nối hướng ra ngoài nên không
+# cần IP public, không mở cổng, không đụng router — đúng thứ cần khi server
+# nằm trên máy cá nhân, trong WSL, hoặc sau CGNAT.
+#
+# Vì cloudflared nằm chung network với api, nó gọi thẳng http://api:3000 qua
+# mạng nội bộ Docker; không cần publish cổng nào ra host.
+#
+# Cả hai service đều nằm sau profile để không bao giờ chạy nhầm cả hai cùng
+# lúc — hai tunnel cùng trỏ vào một API là thừa và gây nhầm URL.
+#
+#   # Quick tunnel — URL ngẫu nhiên, đổi mỗi lần chạy, không cần tài khoản.
+#   docker compose -f compose.yml -f compose.kvm.yaml -f compose.supabase.yaml \
+#     -f compose.tunnel.yaml --profile quick up -d
+#   docker compose -f compose.yml -f compose.tunnel.yaml --profile quick \
+#     logs cloudflared-quick | grep trycloudflare.com
+#
+#   # Named tunnel — URL cố định theo domain. Cần CLOUDFLARE_TUNNEL_TOKEN.
+#   docker compose -f compose.yml -f compose.kvm.yaml -f compose.supabase.yaml \
+#     -f compose.tunnel.yaml --profile named up -d
+#
+# Xem new_setup/public_access.md.
+
+services:
+  cloudflared-quick:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles:
+      - quick
+    # URL tạm, in ra trong log lúc khởi động.
+    command: tunnel --no-autoupdate --url http://api:3000
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - app-relay
+
+  cloudflared-named:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles:
+      - named
+    # Token mang sẵn cấu hình hostname và route, tạo ở Cloudflare Dashboard →
+    # Zero Trust → Networks → Tunnels. Public hostname trỏ về http://api:3000.
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?cần CLOUDFLARE_TUNNEL_TOKEN trong deploy/.env}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - app-relay

@@ -33,12 +33,15 @@ Quick tunnel không cần đăng ký, không cần token. Đổi URL mỗi lần
 
 `deploy/compose.tunnel.yaml` thêm một service duy nhất, nằm chung network `app-relay`:
 
+Cả hai chế độ đều nằm sau profile riêng, nên không bao giờ chạy nhầm cả hai cùng lúc.
+
 ```bash
 # Quick tunnel — URL tạm, in ra trong log
 docker compose -f compose.yml -f compose.kvm.yaml -f compose.supabase.yaml \
-  -f compose.tunnel.yaml up -d
+  -f compose.tunnel.yaml --profile quick up -d
 
-docker compose -f compose.tunnel.yaml logs cloudflared | grep trycloudflare.com
+docker compose -f compose.yml -f compose.tunnel.yaml --profile quick \
+  logs cloudflared-quick | grep trycloudflare.com
 ```
 
 ```bash
