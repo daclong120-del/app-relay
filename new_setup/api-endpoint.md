@@ -14,7 +14,7 @@ Không có dashboard endpoint, không có user/auth/account endpoint, không có
 ## 1.1. Chỉ cần 2 giá trị
 
 ```env
-BASE_URL=https://lap-joyce-numeric-change.trycloudflare.com/v1
+BASE_URL=https://pine-polo-ranks-primary.trycloudflare.com/v1
 API_TOKEN=apr_live_8b1444e26673fa97a0adab84fcd785a871b4cea6d8f31f35
 ```
 
@@ -34,7 +34,7 @@ Người gọi không cần biết: Supabase, địa chỉ worker, Android SDK/J
 Job chạy bất đồng bộ nên không có chuyện một request là có file ngay. Bốn bước:
 
 ```bash
-BASE_URL=https://lap-joyce-numeric-change.trycloudflare.com/v1
+BASE_URL=https://pine-polo-ranks-primary.trycloudflare.com/v1
 API_TOKEN=apr_live_8b1444e26673fa97a0adab84fcd785a871b4cea6d8f31f35
 
 # 1. Đặt hàng. Idempotency-Key để gửi lại lúc mạng lỗi không tạo job trùng.
