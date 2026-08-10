@@ -121,74 +121,59 @@ AVD bắt buộc dùng volume, nếu không mỗi lần recreate container sẽ 
 
 `deploy/compose.yml`:
 
+Bản đầy đủ nằm ở `deploy/compose.yml`; dưới đây là những điểm quyết định:
+
 ```yaml
 services:
   api:
+    image: ${DOCKERHUB_USERNAME:-apprelay}/app-relay-api:${IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: apps/api/Dockerfile
 
-    restart: unless-stopped
-
-    env_file:
-      - .env.api
-
-    expose:
-      - "3000"
+    # Bind 127.0.0.1: cloudflared gọi api:3000 qua mạng nội bộ Docker nên không
+    # cần mở cổng ra ngoài. Giữ cổng loopback để gõ curl thẳng lúc debug.
+    ports:
+      - "127.0.0.1:3000:3000"
 
     volumes:
       - api-artifacts:/data/artifacts
 
-    networks:
-      - app-relay
+    healthcheck:
+      # 127.0.0.1 chứ không phải localhost: trong container localhost phân giải
+      # ra ::1 trước, mà server chỉ bind IPv4 0.0.0.0 nên probe ăn ECONNREFUSED
+      # và container không bao giờ healthy — kéo theo worker đứng ở depends_on.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/v1/health"]
 
   worker:
+    image: ${DOCKERHUB_USERNAME:-apprelay}/app-relay-worker:${IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: apps/worker/Dockerfile
 
-    restart: unless-stopped
-
-    env_file:
-      - .env.worker
-
     depends_on:
-      - api
-
-    devices:
-      - /dev/kvm:/dev/kvm
-
-    group_add:
-      - "${KVM_GID}"
+      api:
+        condition: service_healthy
 
     shm_size: "2gb"
+
+    # noVNC chỉ bind loopback, không phơi ra Internet.
+    ports:
+      - "127.0.0.1:6080:6080"
 
     volumes:
       - worker-avd:/home/worker/.android
       - worker-work:/app/apps/worker/work
 
-    networks:
-      - app-relay
-
   caddy:
     image: caddy:2
-
-    restart: unless-stopped
-
+    # Nằm sau profile: chỉ bật trên VPS có IP tĩnh. Máy cá nhân/WSL dùng
+    # cloudflared thay thế, xem public_access.md.
+    profiles:
+      - production
     ports:
       - "80:80"
       - "443:443"
-
-    volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-
-    depends_on:
-      - api
-
-    networks:
-      - app-relay
 
 volumes:
   api-artifacts:
@@ -200,6 +185,8 @@ volumes:
 networks:
   app-relay:
 ```
+
+`/dev/kvm` và `group_add` không nằm trong `compose.yml` mà ở lớp phủ `compose.kvm.yaml`, để `compose.yml` vẫn chạy được trên môi trường không có KVM.
 
 ## Biến môi trường API
 
@@ -225,6 +212,10 @@ ARTIFACT_TTL_HOURS=720
 ARTIFACT_MIN_FREE_BYTES=10737418240
 ORPHAN_DIR_MIN_AGE_MINUTES=120
 DELETE_AFTER_DOWNLOAD_GRACE_MINUTES=10
+
+# Job im lặng quá lâu mà claim_job() không lấy lại được thì reaper đưa về
+# failed/cancelled. Đặt cao hơn hẳn lease 120s để không cướp job còn sống.
+STUCK_JOB_GRACE_MINUTES=15
 
 DOWNLOAD_SIGNING_SECRET=xxxxx
 DOWNLOAD_URL_TTL_SECONDS=600
@@ -339,17 +330,21 @@ Khi container khởi động:
 7. Worker bắt đầu claim task
 ```
 
-Emulator có thể chạy headless:
+Emulator chạy **có cửa sổ**, không dùng `-no-window`:
 
 ```bash
 emulator \
   -avd chpay \
-  -no-window \
+  -accel "${EMULATOR_ACCEL:-auto}" \
   -no-audio \
   -no-boot-anim \
   -gpu swiftshader_indirect \
   -no-snapshot-save
 ```
+
+Cửa sổ vẽ vào Xvfb rồi đẩy ra noVNC, vì phải nhìn và bấm được màn hình để đăng nhập CH Play lần đầu. Xem `vps_deploy.md` §6.
+
+Bị SIGTERM giữa chừng (WSL thu hồi distro, `docker stop` quá hạn) sẽ để lại lock trong AVD — `chpay.avd/multiinstance.lock`, `chpay.avd/hardware-qemu.ini.lock`, `avd/running/pid_*.ini`. Lần khởi động sau emulator tưởng đã có instance khác nên thoát ngay, `wait-for-emulator.sh` quay vòng tới lúc hết giờ. Xoá đúng mấy file lock đó là chạy lại được; **không** đụng `userdata-qemu.img*` vì phiên đăng nhập Google nằm trong đấy.
 
 ## Điều kiện cực kỳ quan trọng của VPS
 

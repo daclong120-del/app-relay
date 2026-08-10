@@ -2,8 +2,8 @@ Chốt thiết kế phù hợp nhất:
 
 * Supabase chỉ lưu trạng thái job, metadata app, worker và timeline.
 * Không lưu APK, ZIP, icon hoặc screenshot trong Supabase.
-* Worker gửi ZIP về ổ đĩa của API server.
-* API server stream ZIP cho người gọi qua link có hạn.
+* Worker gửi từng file về ổ đĩa của API server, không nén.
+* API server stream file thô hoặc gói ZIP tại chỗ cho người gọi qua link có hạn.
 * Không cần Supabase Auth hay bảng tài khoản.
 * Worker không cần cầm khóa Supabase; mọi thứ đi qua API server.
 
@@ -32,7 +32,7 @@ SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_xxxxxxxxx
 API_TOKEN=apr_live_xxxxxxxxx
 WORKER_TOKEN=worker_live_xxxxxxxxx
-ARTIFACT_DIR=/data/app-relay/artifacts
+ARTIFACT_DIR=/data/artifacts
 DOWNLOAD_SIGNING_SECRET=xxxxxxxxx
 ```
 
@@ -419,15 +419,15 @@ Worker heartbeat khoảng 20–30 giây một lần và gia hạn lease thêm 12
 Ngoài endpoint public đã liệt kê, thêm:
 
 ```text
-POST /internal/workers/heartbeat
-POST /internal/jobs/claim
-POST /internal/jobs/{jobId}/heartbeat
-POST /internal/jobs/{jobId}/events
-PUT  /internal/jobs/{jobId}/files/{path}
-POST /internal/jobs/{jobId}/artifact/finalize
-POST /internal/jobs/{jobId}/complete
-POST /internal/jobs/{jobId}/fail
-POST /internal/jobs/{jobId}/cancelled
+POST /internal/v1/workers/heartbeat
+POST /internal/v1/jobs/claim
+POST /internal/v1/jobs/{jobId}/heartbeat
+POST /internal/v1/jobs/{jobId}/events
+PUT  /internal/v1/jobs/{jobId}/files/{path}
+POST /internal/v1/jobs/{jobId}/artifact/finalize
+POST /internal/v1/jobs/{jobId}/complete
+POST /internal/v1/jobs/{jobId}/fail
+POST /internal/v1/jobs/{jobId}/cancelled
 ```
 
 Tất cả dùng:
@@ -462,11 +462,11 @@ Vì job chạy bất đồng bộ, API không thể trả APK ngay trong request
 Artifact được lưu dưới dạng **thư mục**, không phải file ZIP. Chi tiết đầy đủ nằm trong `artifact_storage.md`.
 
 1. Worker dựng `work/apks/<packageId>/` đúng layout `README.md`.
-2. Worker gửi từng file qua `PUT /internal/jobs/{jobId}/files/{path}`, rồi `POST .../artifact/finalize`.
+2. Worker gửi từng file qua `PUT /internal/v1/jobs/{jobId}/files/{path}`, rồi `POST .../artifact/finalize`.
 3. API lưu tại:
 
 ```text
-/data/app-relay/artifacts/{jobId}/
+/data/artifacts/{jobId}/
 ├── base.apk
 ├── split_config.*.apk
 ├── PULL_MANIFEST.txt

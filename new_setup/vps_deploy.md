@@ -145,11 +145,15 @@ services:
       - path: .env
         required: false
     ports:
-      - "3000:3000"
+      # Loopback thôi: cloudflared/caddy gọi api:3000 qua mạng nội bộ Docker.
+      - "127.0.0.1:3000:3000"
     volumes:
       - api-artifacts:/data/artifacts
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/v1/health"]
+      # 127.0.0.1 chứ không phải localhost: trong container localhost phân giải
+      # ra ::1 trước, mà server chỉ bind IPv4 nên probe hỏng và container không
+      # bao giờ healthy — worker sẽ đứng mãi ở depends_on.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/v1/health"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -214,12 +218,12 @@ Trên VPS có KVM, chạy:
 
 ```bash
 docker compose \
-  -f compose.yaml \
+  -f compose.yml \
   -f compose.kvm.yaml \
   up -d
 ```
 
-Tách file như vậy giúp `compose.yaml` vẫn có thể chạy trên WSL hoặc môi trường không có `/dev/kvm`.
+Tách file như vậy giúp `compose.yml` vẫn có thể chạy trên WSL hoặc môi trường không có `/dev/kvm`.
 
 ## 6. Emulator có GUI hoạt động thế nào?
 
@@ -274,7 +278,7 @@ Sau khi đăng nhập:
 * Có thể đóng trình duyệt.
 * Có thể ngắt SSH tunnel.
 * Emulator và worker tiếp tục chạy.
-* Tài khoản Google được giữ trong volume `android-home`.
+* Tài khoản Google được giữ trong volume `worker-avd`.
 
 ## 8. Trên WSL
 
@@ -399,8 +403,8 @@ Android Emulator x86/x86_64 trên Linux dựa vào KVM để tăng tốc. [Andro
 | JDK                     | Worker Docker image    |
 | Android SDK             | Worker Docker image    |
 | Play Store system image | Worker Docker image    |
-| AVD `chpay`             | Volume `android-home`  |
-| Tài khoản Google Play   | Volume `android-home`  |
+| AVD `chpay`             | Volume `worker-avd`  |
+| Tài khoản Google Play   | Volume `worker-avd`  |
 | APK worker đang xử lý   | Volume `worker-work`   |
 | Thư mục artifact chờ tải | Volume `api-artifacts` |
 | Job metadata            | Supabase               |
@@ -470,12 +474,12 @@ Build và chạy:
 
 ```bash
 docker compose \
-  -f compose.yaml \
+  -f compose.yml \
   -f compose.kvm.yaml \
   build
 
 docker compose \
-  -f compose.yaml \
+  -f compose.yml \
   -f compose.kvm.yaml \
   up -d
 ```

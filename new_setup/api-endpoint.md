@@ -14,9 +14,11 @@ Không có dashboard endpoint, không có user/auth/account endpoint, không có
 ## 1.1. Chỉ cần 2 giá trị
 
 ```env
-BASE_URL=https://pine-polo-ranks-primary.trycloudflare.com/v1
-API_TOKEN=apr_live_8b1444e26673fa97a0adab84fcd785a871b4cea6d8f31f35
+BASE_URL=https://funky-presents-winter-permitted.trycloudflare.com/v1
+API_TOKEN=apr_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
+
+> Giá trị `API_TOKEN` thật lấy từ `deploy/.env.api`, **không** viết vào file này — tài liệu nằm trong git nên token commit vào đây coi như đã lộ với mọi người có quyền đọc repo, và xoá ở commit sau cũng không xoá khỏi lịch sử.
 
 ```bash
 curl "$BASE_URL/health"
@@ -26,6 +28,15 @@ curl "$BASE_URL/jobs" -H "Authorization: Bearer $API_TOKEN"
 Không cần cài gì, không cần VPN, không cần biết hệ thống chạy ở đâu — chỉ là HTTPS thường.
 
 > **URL trên là tạm.** Nó đi qua Cloudflare quick tunnel và **đổi mỗi lần server khởi động lại**. Dùng để thử thì được, nhưng **đừng hardcode vào code sản phẩm**. Khi cần URL cố định sẽ có bản `https://api.<tên-miền>/v1` thay thế — lúc đó chỉ đổi `BASE_URL`, token và mọi endpoint giữ nguyên.
+>
+> Người vận hành: URL trong file này chỉ đúng tới lần restart kế tiếp. Lấy bản hiện hành rồi gửi lại cho đối tác:
+>
+> ```bash
+> docker logs deploy-cloudflared-quick-1 2>&1 \
+>   | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1
+> ```
+>
+> `tail -1` chứ không phải `head -1`: cloudflared in một URL mới mỗi lần khởi động lại, và bản đầu trong log đã chết từ lâu.
 
 Người gọi không cần biết: Supabase, địa chỉ worker, Android SDK/JDK, IP server, Cloudflare hay Caddy đứng trước API, tài khoản Google Play.
 
@@ -34,8 +45,8 @@ Người gọi không cần biết: Supabase, địa chỉ worker, Android SDK/J
 Job chạy bất đồng bộ nên không có chuyện một request là có file ngay. Bốn bước:
 
 ```bash
-BASE_URL=https://pine-polo-ranks-primary.trycloudflare.com/v1
-API_TOKEN=apr_live_8b1444e26673fa97a0adab84fcd785a871b4cea6d8f31f35
+BASE_URL=https://funky-presents-winter-permitted.trycloudflare.com/v1
+API_TOKEN=apr_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # 1. Đặt hàng. Idempotency-Key để gửi lại lúc mạng lỗi không tạo job trùng.
 JOB=$(curl -s -X POST "$BASE_URL/jobs" \
@@ -77,6 +88,8 @@ queued → running → completed
 
 Ba trạng thái cuối là kết thúc. Job `failed` gọi được `POST /jobs/{id}/retry` để chạy lại và giữ nguyên job ID; `completed` và `cancelled` thì không.
 
+Job **luôn** tới được một trong ba trạng thái kết thúc. Worker chết giữa chừng thì lease hết hạn và job được giao lại; hết lượt thử, hoặc chết khi đang `cancelling`, thì tác vụ nền đưa nó về `failed`/`cancelled` sau `STUCK_JOB_GRACE_MINUTES` (mặc định 15). Nhờ vậy vòng lặp poll không bao giờ chạy vô hạn.
+
 Các bước nhỏ nằm trong `currentStep`, không phải status riêng:
 
 ```text
@@ -105,6 +118,8 @@ curl "$BASE_URL/jobs/$JOB/artifact/files" -H "Authorization: Bearer $API_TOKEN"
 
 Chênh tới **3000 lần**. Đừng tải cả cục nếu chỉ cần metadata.
 
+Selector không khớp file nào thì trả `404`, không phải ZIP rỗng. Gặp `404` với `apk*` mà `listing` vẫn chạy nghĩa là APK đã hết hạn theo `APK_TTL_HOURS` — cứ gọi `/artifact/files` trước để biết artifact thực sự còn gì. Selector viết sai (không nằm trong bảng trên) thì `400`.
+
 Lấy đúng một file bằng `path` thay cho `select`:
 
 ```bash
@@ -125,6 +140,7 @@ Nhiều file → gói ZIP khi đang stream, không có `Content-Length`.
 | `403` khi tải | link hết hạn hoặc chữ ký sai | gọi lại `download-url` |
 | `404` | job / app / file không tồn tại | không thử lại |
 | `400` | body sai, URL thiếu `?id=`, selector lạ, **thao tác sai trạng thái** (retry job chưa failed, cancel job đã xong) | sửa request |
+| `409` | `STATUS_CHANGED` — job đổi trạng thái ngay giữa lúc xử lý huỷ (worker vừa nhận job) | đọc lại job, gọi `cancel` lần nữa nếu vẫn muốn huỷ |
 | `410` | file không còn — APK đã quá hạn lưu trữ | chạy job mới |
 | `416` | `Range` vượt kích thước file | bỏ header `Range` |
 
@@ -140,7 +156,7 @@ Thân lỗi luôn cùng một dạng; phân nhánh theo `error.code`, đừng đ
 
 **Link tải sống 10 phút.** Hết hạn thì gọi lại `download-url`, file vẫn còn.
 
-**APK giữ 7 ngày** sau khi job xong (`APK_TTL_HOURS`, mặc định repo là 6 tiếng). Quá hạn thì listing, ảnh và metadata vẫn tra được, nhưng muốn APK phải chạy job mới.
+**APK giữ 6 tiếng** sau khi job xong (`APK_TTL_HOURS`). Quá hạn thì listing, ảnh và metadata vẫn tra được, nhưng muốn APK phải chạy job mới. Cần giữ lâu hơn thì nâng biến đó lên, nhớ tính cả dung lượng đĩa: mỗi job khoảng 70 MB.
 
 **Tải file lớn nên dùng `Range`** để resume khi đứt mạng, thay vì tải lại 68 MB từ đầu.
 
@@ -297,10 +313,10 @@ API lưu artifact dưới dạng **thư mục**, không phải một file ZIP. X
     "state": "available",
     "totalSizeBytes": 149191734,
     "files": [
-      { "path": "base.apk", "sizeBytes": 68582418, "sha256": "1c26…", "select": "apk.base" },
-      { "path": "split_config.arm64_v8a.apk", "sizeBytes": 75029958, "sha256": "f60d…", "select": "apk.splits" },
-      { "path": "playstore/icon.png", "sizeBytes": 23483, "sha256": "a7c8…", "select": "listing" },
-      { "path": "playstore/screenshots/screenshot_01.png", "sizeBytes": 277350, "sha256": "cbea…", "select": "screenshots" }
+      { "path": "base.apk", "sizeBytes": 68582418, "sha256": "1c26…", "contentType": "application/vnd.android.package-archive", "select": "apk.base" },
+      { "path": "split_config.arm64_v8a.apk", "sizeBytes": 75029958, "sha256": "f60d…", "contentType": "application/vnd.android.package-archive", "select": "apk.splits" },
+      { "path": "playstore/icon.png", "sizeBytes": 23483, "sha256": "a7c8…", "contentType": "image/png", "select": "listing" },
+      { "path": "playstore/screenshots/screenshot_01.png", "sizeBytes": 277350, "sha256": "cbea…", "contentType": "image/png", "select": "screenshots" }
     ]
   }
 }

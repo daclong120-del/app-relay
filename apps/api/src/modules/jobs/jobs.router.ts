@@ -254,13 +254,29 @@ router.post('/:jobId/cancel', requirePublicAuth, async (req: Request, res: Respo
       });
     }
 
-    let targetStatus = job.status;
-    if (job.status === 'queued') {
-      targetStatus = 'cancelled';
-      await supabase.from('jobs').update({ status: 'cancelled', cancel_requested_at: new Date().toISOString() }).eq('id', jobId);
-    } else if (job.status === 'running') {
-      targetStatus = 'cancelling';
-      await supabase.from('jobs').update({ status: 'cancelling', cancel_requested_at: new Date().toISOString() }).eq('id', jobId);
+    // Ràng `.eq('status', ...)` vào chính trạng thái vừa đọc. Không có nó thì
+    // một worker claim job đúng khe giữa SELECT và UPDATE sẽ bị ghi đè thành
+    // 'cancelled' trong khi nó vẫn đang chạy — job coi như đã huỷ nhưng
+    // emulator vẫn cài app và vẫn upload artifact.
+    const targetStatus = job.status === 'queued' ? 'cancelled' : 'cancelling';
+
+    const { data: updated } = await supabase
+      .from('jobs')
+      .update({ status: targetStatus, cancel_requested_at: new Date().toISOString() })
+      .eq('id', jobId)
+      .eq('status', job.status)
+      .select('status');
+
+    if (!updated || updated.length === 0) {
+      // Trạng thái đã đổi ngay dưới tay ta. Đọc lại rồi để client quyết định
+      // thay vì báo huỷ thành công một job không hề bị huỷ.
+      const { data: fresh } = await supabase.from('jobs').select('status').eq('id', jobId).single();
+      return res.status(409).json({
+        error: {
+          code: 'STATUS_CHANGED',
+          message: `Job ${jobId} vừa đổi sang '${fresh?.status ?? 'unknown'}' trong lúc xử lý huỷ, thử lại nếu vẫn muốn huỷ`,
+        },
+      });
     }
 
     await supabase.from('job_events').insert([

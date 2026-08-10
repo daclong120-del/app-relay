@@ -233,11 +233,106 @@ export async function cleanupOrphanDirs(): Promise<void> {
   }
 }
 
+/**
+ * Đưa job kẹt về trạng thái kết thúc.
+ *
+ * `claim_job()` chỉ nhặt lại job `running` khi lease hết hạn VÀ
+ * `attempt_count < max_attempts` VÀ `cancel_requested_at is null`. Hai loại job
+ * lọt qua cả ba điều kiện đó thì không còn ai xử lý:
+ *
+ *   - `cancelling` mà worker chết trước khi gọi `/cancelled`: đã có
+ *     `cancel_requested_at` nên claim bỏ qua, mà `cancelling` cũng không nằm
+ *     trong bộ lọc status.
+ *   - `running` đã hết lượt (`attempt_count >= max_attempts`): không được claim
+ *     lại, cũng không ai đánh dấu `failed`.
+ *
+ * Cả hai nằm lại vĩnh viễn. Client poll ba trạng thái kết thúc sẽ chờ mãi, và
+ * `POST /retry` cũng từ chối vì status không phải `failed` — không có đường nào
+ * thoát ngoài sửa tay trong DB.
+ *
+ * Job `running` còn lượt thì KHÔNG đụng tới: `claim_job()` sẽ tự lấy lại, cướp
+ * mất của nó là bỏ đi một lần thử hợp lệ.
+ */
+export async function reapStuckJobs(): Promise<void> {
+  try {
+    const graceMinutes = parseInt(process.env.STUCK_JOB_GRACE_MINUTES || '15', 10);
+    const cutoff = Date.now() - graceMinutes * 60 * 1000;
+
+    const { data: jobs, error } = await supabase
+      .from('jobs')
+      .select('id, status, attempt_count, max_attempts, cancel_requested_at, lease_expires_at, last_heartbeat_at, started_at, queued_at, error_code, error_message')
+      .in('status', ['running', 'cancelling'])
+      .limit(200);
+
+    if (error) {
+      console.warn(`[Reaper] Không truy vấn được job đang chạy: ${error.message}`);
+      return;
+    }
+
+    for (const job of jobs || []) {
+      // Mốc muộn nhất chứng tỏ job còn sống. lease_expires_at có thể null nếu
+      // job chưa kịp heartbeat lần nào, nên phải lần ngược về các mốc cũ hơn —
+      // thiếu bước này thì job chết ngay sau khi claim sẽ không bao giờ bị dọn.
+      const marks = [job.lease_expires_at, job.last_heartbeat_at, job.started_at, job.queued_at]
+        .filter(Boolean)
+        .map((t) => new Date(t as string).getTime());
+      const lastAlive = marks.length > 0 ? Math.max(...marks) : 0;
+
+      if (lastAlive > cutoff) continue;
+
+      const isCancelling = job.status === 'cancelling' || !!job.cancel_requested_at;
+      const outOfAttempts = job.attempt_count >= job.max_attempts;
+
+      if (!isCancelling && !outOfAttempts) continue;
+
+      const patch = isCancelling
+        ? {
+            status: 'cancelled',
+            cancel_reason: job.error_message || 'Worker chết trước khi xác nhận huỷ; dọn bởi reaper',
+          }
+        : {
+            status: 'failed',
+            error_code: job.error_code || 'LEASE_EXPIRED',
+            error_message:
+              job.error_message ||
+              `Lease hết hạn sau ${job.attempt_count}/${job.max_attempts} lượt mà worker không báo kết quả`,
+            error_retryable: false,
+          };
+
+      const { error: updErr } = await supabase
+        .from('jobs')
+        .update({ ...patch, worker_id: null, lease_expires_at: null, updated_at: new Date().toISOString() })
+        .eq('id', job.id)
+        .eq('status', job.status); // job vừa đổi trạng thái giữa chừng thì bỏ qua, không ghi đè
+
+      if (updErr) {
+        console.warn(`[Reaper] Không cập nhật được ${job.id}: ${updErr.message}`);
+        continue;
+      }
+
+      await supabase.from('job_events').insert([
+        {
+          job_id: job.id,
+          event_type: isCancelling ? 'job.cancelled' : 'job.failed',
+          level: isCancelling ? 'warning' : 'error',
+          message: `Reaper đưa job kẹt ở '${job.status}' về '${patch.status}'`,
+          data: { reason: 'stuck_job_reaper', graceMinutes, attempt: job.attempt_count },
+        },
+      ]);
+
+      console.warn(`[Reaper] ${job.id}: '${job.status}' → '${patch.status}'.`);
+    }
+  } catch (err: any) {
+    console.error(`[Reaper] Lỗi khi dọn job kẹt: ${err.message}`);
+  }
+}
+
 async function runAll(): Promise<void> {
   await cleanupExpiredApks();
   await cleanupExpiredArtifacts();
   await cleanupOrphanDirs();
   await evictUnderDiskPressure();
+  await reapStuckJobs();
 }
 
 export function startArtifactCleanupCron(intervalMs = 3600000) {

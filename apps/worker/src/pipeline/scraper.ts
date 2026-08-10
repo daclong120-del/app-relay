@@ -17,6 +17,21 @@ export interface ScrapeOptions {
   includeScreenshots?: boolean;
 }
 
+/** Strip listing markup down to readable text, keeping `<br>` as line breaks. */
+function htmlToText(raw: string): string {
+  return raw
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .trim();
+}
+
 export async function scrapePlayStoreListing(
   playUrl: string,
   targetDir: string,
@@ -97,27 +112,46 @@ export async function scrapePlayStoreListing(
     }
   }
 
-  // Installs extraction
-  const installsMatch = html.match(/<span>([0-9,MK.]+\+?)\s*(?:downloads|Downloads|lượt tải)<\/span>/i) ||
-    html.match(/aria-label="([0-9,MK.]+\+?\s*(?:downloads|Downloads|lượt tải))"/i) ||
-    html.match(/([0-9,MK.]+\+?)\s*(?:downloads|Downloads|lượt tải)/i);
+  // Installs extraction. The count and the word "Downloads" live in two sibling
+  // divs (`<div class="ClM7O">10M+</div><div class="g1rdde">Downloads</div>`),
+  // so anchoring on the label and capturing the preceding div is what actually
+  // matches; a bare `([0-9,MK.]+)\s*Downloads` never fires because a closing
+  // tag always sits between the two.
+  const installsMatch = html.match(/<div[^>]*>\s*([0-9][0-9.,]*\s*[KMB]?\+?)\s*<\/div>\s*<div[^>]*>\s*(?:Downloads|lượt tải)\s*<\/div>/i) ||
+    html.match(/<span>([0-9,MK.]+\+?)\s*(?:downloads|Downloads|lượt tải)<\/span>/i) ||
+    html.match(/aria-label="([0-9,MK.]+\+?\s*(?:downloads|Downloads|lượt tải))"/i);
   const installs = installsMatch ? installsMatch[1].trim() : undefined;
 
-  // Description extraction
-  let description = '';
-  if (jsonLdData && jsonLdData.description) {
-    description = String(jsonLdData.description).trim();
-  } else {
-    const descMatch = html.match(/<div[^>]*itemprop="description"[^>]*>(.*?)<\/div>/s) ||
-      html.match(/<div[^>]*data-g-id="description"[^>]*>(.*?)<\/div>/s) ||
-      html.match(/<meta\s+name="description"\s+content="([^"]+)"/i);
-    let rawDesc = descMatch ? descMatch[1] : '';
-    description = rawDesc
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/p>/gi, '\n\n')
-      .replace(/<[^>]+>/g, '')
-      .trim();
+  // Description extraction.
+  //
+  // JSON-LD carries only the one-line tagline Play shows under the title (61
+  // chars for Facemoji), not the listing body (3.8 KB). Preferring it meant
+  // every artifact shipped a description that looked valid and was in fact the
+  // wrong field. The full text lives in the element tagged
+  // `data-g-id="description"`, so read that first and keep JSON-LD as the
+  // fallback for pages where the block is absent.
+  //
+  // Longest-wins rather than first-match: if Google renames the attribute the
+  // block regex starts returning a fragment, and silently shipping a fragment
+  // is the failure this comment exists to prevent.
+  const descCandidates: string[] = [];
+
+  const descBlock = html.match(/<div[^>]*data-g-id="description"[^>]*>([\s\S]*?)<\/div>/i) ||
+    html.match(/<div[^>]*itemprop="description"[^>]*>([\s\S]*?)<\/div>/i);
+  if (descBlock && descBlock[1]) {
+    descCandidates.push(htmlToText(descBlock[1]));
   }
+
+  if (jsonLdData && jsonLdData.description) {
+    descCandidates.push(String(jsonLdData.description).trim());
+  }
+
+  const metaDesc = html.match(/<meta\s+name="description"\s+content="([^"]+)"/i);
+  if (metaDesc && metaDesc[1]) {
+    descCandidates.push(htmlToText(metaDesc[1]));
+  }
+
+  const description = descCandidates.reduce((best, c) => (c.length > best.length ? c : best), '');
 
   // Icon extraction
   const iconMatch = html.match(/<meta property="og:image" content="(.*?)"/i);
