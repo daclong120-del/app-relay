@@ -70,7 +70,7 @@ Backend thuần — **không có dashboard**, không có tài khoản, người 
 | File | Nội dung |
 |---|---|
 | [test-case.md](test-case.md) | ~120 case có ID, phân loại tự động / thủ công, mục tiêu coverage theo vùng |
-| [workflow.md](workflow.md) | Toàn cảnh 3 giai đoạn: dựng → lên VPS lần đầu → CI tự động. **4 hiểu nhầm thường gặp**, bảng cái gì trong image / cái gì trong volume |
+| [workflow.md](workflow.md) | Toàn cảnh 3 giai đoạn: dựng → lên VPS lần đầu → CI tự động. **4 hiểu nhầm thường gặp**, bảng cái gì trong image / cái gì trong volume, và **đánh giá thẳng quy trình này chuyên nghiệp tới đâu** |
 | [deploy-vps.md](deploy-vps.md) | VPS trắng → API public bằng `deploy/bootstrap.sh`. Tự chứa: Postgres self-host, Caddy TLS, **một bước tay duy nhất** |
 | [CI-CD.md](CI-CD.md) | 4 job đang chạy, secret cần có, rollback, **4 khoảng trống đã biết** |
 | [security.md](security.md) | Ranh giới tin cậy, ma trận quyền, 7 chốt đã có, **8 nợ bảo mật ghi thẳng**, checklist trước khi mở public |

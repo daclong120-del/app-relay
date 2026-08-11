@@ -216,7 +216,83 @@ Checklist đầy đủ trước khi mở public: [security.md §10](security.md)
 
 ---
 
-## 6. Đọc tiếp gì
+## 6. Quy trình này chuyên nghiệp tới đâu
+
+Đánh giá thẳng, để sau này đọc lại còn biết mình đang đứng ở đâu.
+
+**Kết luận: đúng chuẩn ở tầm một VPS, thiếu ở tầm production thật.**
+
+Đây là cách một team nhỏ hoặc solo dev làm, và nó hợp lệ — không phải làm ẩu.
+Nhưng nó chưa phải thứ một công ty có người trực 24/7 sẽ chạy.
+
+### 6.1. Đang làm đúng chuẩn
+
+| Thứ | Vì sao là chuẩn |
+|---|---|
+| CI build image → đẩy registry → máy đích chỉ pull | Pattern chủ đạo của cả ngành. Không ai build trên máy production |
+| Multi-stage build, prune devDeps, chạy non-root | Chuẩn Docker cơ bản |
+| Tag image theo `github.sha` | **Toàn bộ cơ chế rollback nằm ở đây.** Nhiều nơi chỉ dùng `latest` rồi không lùi được |
+| Secret không nằm trong image, không nằm trong git | Chuẩn |
+| Reverse proxy tự cấp TLS (Caddy) | Cách hiện đại, thay cho nginx + certbot cron |
+| Healthcheck + `depends_on: service_healthy` | Ops cơ bản mà rất hay bị bỏ |
+| Xoay log, `stop_grace_period` | Thứ chỉ người từng bị đầy đĩa lúc 2 giờ sáng mới nhớ thêm |
+| Migration có sổ + checksum | Tốt hơn mức trung bình |
+
+### 6.2. Thiếu so với production thật
+
+| Thiếu | Hậu quả | Chuẩn ngành |
+|---|---|---|
+| **Không có staging** | Push lên `main` là vào thẳng production. Sai là người dùng chịu | staging → duyệt → production |
+| **Không có monitoring / alert** | Container chết lúc 3 giờ sáng, sáng mai mới biết | uptime check + Sentry + Grafana |
+| **Không backup tự động** | Tài liệu có hướng dẫn, nhưng không ai chạy thì vẫn bằng không | cron + lưu ra ngoài máy |
+| **Không có branch protection** | Push thẳng `main`, không cần review | bắt buộc PR + status check |
+| **Không smoke test sau deploy** | `up -d` xong là báo "✅ deployed" kể cả khi container crash-loop | curl `/health` sau deploy |
+| **Không quét secret / CVE** | Dựa hoàn toàn vào `.gitignore` | gitleaks + Dependabot |
+| **Provision bằng shell script** | `bootstrap.sh` chạy tay, không tái lập máy thứ hai một cách chắc chắn | Ansible / Terraform |
+| **Secret sinh trên máy** | Mất VPS là mất secret | Vault / SOPS / Doppler |
+
+Phần lớn đã ghi sẵn ở [CI-CD.md §5–6](CI-CD.md) — nhưng ghi trong tài liệu khác
+với đã làm.
+
+### 6.3. Ba chỗ là đánh đổi CHỦ ĐỘNG, không phải lỗi thiết kế
+
+**a. Postgres self-host cùng máy.** Chọn vì muốn "đóng gói đầy đủ, VPS clean".
+Đổi lại: mất VPS là mất database, backup là việc của mình, không có HA. Chuẩn
+ngành cho production là DB managed (Supabase Cloud, Neon, RDS) — họ lo backup và
+replica.
+
+**b. HTTP trần (`--http-only`).** Chọn để test trước khi có domain. Đây là
+**downgrade có ý thức**, đường quay lại HTTPS nằm ở [deploy-vps.md §8](deploy-vps.md).
+
+**c. Đăng nhập CH Play bằng tay qua VNC.** Không phải chuẩn ngành, nhưng cũng
+không có cách chuẩn nào — Google Play bắt buộc phiên đăng nhập thật. Đây là ràng
+buộc của **bài toán**, không phải của quy trình.
+
+### 6.4. Điểm yếu lớn nhất: emulator không scale ngang
+
+Nói thẳng: chạy Android emulator trên VPS là chỗ mong manh nhất của kiến trúc
+này. Một emulator = một job tại một thời điểm. Muốn tăng công suất phải thêm VPS,
+mà **mỗi VPS lại cần đăng nhập CH Play riêng bằng tay**.
+
+Đây là giới hạn thật, không sửa được bằng quy trình tốt hơn. Ai định mở rộng phải
+tính từ đầu.
+
+### 6.5. Nâng cấp tiếp thì làm 3 thứ này trước
+
+Xếp theo tỉ lệ *giá trị / công sức*:
+
+| # | Việc | Công sức | Chặn được gì |
+|---|---|---|---|
+| 1 | **Smoke test sau deploy** | 3 dòng vào `ci.yml` | Loại lỗi tệ nhất: "báo xanh nhưng chết" |
+| 2 | **Backup database tự động** | cron `pg_dump` + đẩy ra ngoài máy | Rủi ro mất trắng dữ liệu |
+| 3 | **Uptime check** | UptimeRobot miễn phí, gọi `/v1/health` mỗi 5 phút | Chết mà không ai biết |
+
+Ba cái này khoảng một buổi. **Staging và Ansible đắt hơn nhiều** — để sau khi có
+người dùng thật rồi tính, làm sớm là tối ưu hoá non.
+
+---
+
+## 7. Đọc tiếp gì
 
 | Cần gì | File |
 |---|---|
