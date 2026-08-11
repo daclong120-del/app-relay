@@ -16,6 +16,18 @@ AVD_NAME="${ANDROID_AVD:-chpay}"
 EMU_ACCEL="${EMULATOR_ACCEL:-auto}"
 ADB="${ADB_PATH:-adb}"
 
+# WORKER_GUI=off bỏ hẳn cửa sổ emulator. Cửa sổ đó vẽ bằng swiftshader tức là
+# render mềm trên CPU — trên VPS yếu nó ăn CPU liên tục kể cả khi không ai xem.
+# Tắt đi thì Android vẫn chạy đủ, chỉ là không nhìn được qua noVNC nữa.
+#
+# Chỉ bật lại khi cần đăng nhập Google Play hoặc nhìn tận mắt lúc gỡ lỗi:
+# sửa WORKER_GUI=on trong deploy/.env.worker rồi `docker compose up -d worker`.
+WINDOW_FLAG=""
+if [ "${WORKER_GUI:-on}" = "off" ]; then
+    WINDOW_FLAG="-no-window"
+    echo "[Entrypoint] WORKER_GUI=off — chạy emulator không cửa sổ (-no-window)."
+fi
+
 if "${ADB}" devices 2>/dev/null | grep -q "emulator-5554"; then
     echo "[Entrypoint] Emulator (emulator-5554) is already running."
 else
@@ -26,6 +38,7 @@ else
         -no-audio \
         -no-boot-anim \
         -no-snapshot-save \
+        ${WINDOW_FLAG} \
         -gpu swiftshader_indirect &
 fi
 

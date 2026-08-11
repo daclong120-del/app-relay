@@ -393,3 +393,68 @@ echo "$NEW_TOKEN"
 
 Chỉ `API_TOKEN` thôi — đổi `WORKER_TOKEN` thì phải sửa cả `.env.worker` cho
 trùng, và `WORKER_TOKEN` chưa bao giờ ra khỏi mạng Docker nên không cần.
+
+---
+
+## 9. Tắt GUI emulator sau khi đăng nhập xong
+
+Cửa sổ emulator được vẽ bằng `swiftshader` — render mềm trên CPU. Cộng với
+`x11vnc` quét framebuffer liên tục **kể cả khi không có trình duyệt nào kết
+nối**, đây là phần tốn CPU thầm lặng nhất trên một VPS yếu.
+
+Đăng nhập Google Play xong thì không cần GUI nữa. Tắt đi:
+
+```bash
+cd /root/app-relay/deploy
+sed -i 's/^WORKER_GUI=.*/WORKER_GUI=off/' .env.worker
+docker compose up -d worker
+```
+
+`WORKER_GUI=off` làm hai việc: emulator chạy với `-no-window`, và
+`openbox`/`x11vnc`/`novnc` không khởi động.
+
+Android bên trong **vẫn chạy đủ** — worker vẫn nhận job, vẫn mở Play Store, vẫn
+kéo APK. Chỉ là không xem được màn hình qua noVNC.
+
+**Phiên đăng nhập không mất.** Nó nằm trong volume `worker-avd`, không liên quan
+tới GUI.
+
+### Bật lại khi cần nhìn
+
+```bash
+sed -i 's/^WORKER_GUI=.*/WORKER_GUI=on/' .env.worker
+docker compose up -d worker
+```
+
+Rồi SSH tunnel + noVNC như §4. Đổi hai chiều đều mất khoảng 30 giây và không
+phải build lại image.
+
+### Lần đầu cần build lại một lượt
+
+Công tắc này nằm trong `entrypoint.sh` và `supervisord.conf`, hai file được COPY
+vào image. Nếu image trên máy có trước khi tính năng này được thêm:
+
+```bash
+cd /root/app-relay && git pull
+cd deploy && docker compose build worker && docker compose up -d worker
+```
+
+Mất khoảng **2–3 phút**, không phải 30 — Docker còn cache toàn bộ layer
+apt-get và Android SDK, chỉ layer `COPY` + `pnpm build` chạy lại.
+
+### Trước khi đổ lỗi cho GUI
+
+Tắt GUI giúp thật, nhưng nếu emulator chậm tới mức không dùng được thì thủ phạm
+gần như luôn là KVM chứ không phải GUI:
+
+```bash
+docker compose exec worker kvm-ok
+docker compose exec worker bash -c 'pgrep -a qemu-system' | grep -o '\-accel [a-z]*'
+```
+
+Phải ra `KVM acceleration can be used` và `-accel on`. Không có KVM thì Android
+chạy bằng software emulation — chậm gấp hàng chục lần, và tắt GUI không cứu
+được. Xem §1.
+
+Cân nhắc thêm nếu RAM eo hẹp: hạ `AVD_RAM_MB` từ `3072` xuống `2048` trong
+`.env.worker`. Thấp hơn nữa thì Android tự kill app giữa chừng.

@@ -346,6 +346,11 @@ EMULATOR_PATH=/opt/android-sdk/emulator/emulator
 ANDROID_AVD=chpay
 WORK_DIR=/app/apps/worker/work
 
+# on = có noVNC để đăng nhập Google Play. Đăng nhập xong đổi thành off cho đỡ
+# CPU: emulator chạy -no-window và không bật x11vnc (thứ quét framebuffer liên
+# tục kể cả khi không ai xem). Phiên đăng nhập nằm trong volume, không mất.
+WORKER_GUI=on
+
 EMULATOR_ACCEL=$([ "$USE_KVM" = 1 ] && echo on || echo off)
 EMULATOR_BOOT_TIMEOUT=$([ "$USE_KVM" = 1 ] && echo 600 || echo 1800)
 

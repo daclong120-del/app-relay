@@ -108,6 +108,18 @@ RUN set -eux; \
     LD_LIBRARY_PATH="${ANDROID_SDK_ROOT}/emulator/lib64:${ANDROID_SDK_ROOT}/emulator/lib64/qt/lib:${ANDROID_SDK_ROOT}/emulator/lib64/gles_swiftshader" \
         ldd "${ANDROID_SDK_ROOT}/emulator/qemu/linux-x86_64/qemu-system-x86_64" | grep "not found" || true
 
+# Công tắc GUI. `on` = có cửa sổ emulator + noVNC (cần lúc đăng nhập Google
+# Play). `off` = emulator chạy -no-window, không bật openbox/x11vnc/novnc —
+# tiết kiệm CPU đáng kể trên VPS yếu.
+#
+# Đặt ở ĐÂY chứ không cùng cụm ENV trên đầu file là có chủ đích: sửa một ENV
+# làm mọi layer sau nó phải build lại, mà phía trên là apt-get và Android SDK —
+# 30 phút. Ở vị trí này thì chỉ layer COPY + pnpm build chạy lại, khoảng 2 phút.
+#
+# supervisord.conf đọc %(ENV_WORKER_GUI)s và sẽ CHẾT lúc khởi động nếu biến
+# không tồn tại, nên dòng mặc định này là bắt buộc chứ không phải cho tiện.
+ENV WORKER_GUI=on
+
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
