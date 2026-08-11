@@ -201,6 +201,70 @@ docker compose ... down -v
 Đăng nhập CH Play chỉ cần làm **một lần**. Sau đó đóng trình duyệt, restart
 container đều được, tài khoản vẫn còn trong `worker-avd`.
 
+### Mang phiên đăng nhập sang máy khác (seed AVD)
+
+Volume `worker-avd` không đi theo image, nên deploy sang máy mới mặc định là
+phải đăng nhập CH Play lại. Muốn khỏi: chụp AVD đã đăng nhập thành *seed* rồi
+nướng vào image.
+
+```bash
+# Trên máy ĐÃ đăng nhập. Script tự tắt emulator sạch rồi bật lại.
+./capture-avd-seed.sh          # → avd-seed/avd-seed.tar.gz (~2.5 GB)
+
+docker compose build worker    # nướng seed vào image
+docker compose push worker     # registry PHẢI để private, xem cảnh báo dưới
+```
+
+Máy mới chỉ cần `docker compose pull` rồi `up -d`: `create-avd.sh` thấy seed thì
+bung ra thay vì tạo AVD trắng, Play Store vào thẳng không hỏi mật khẩu.
+
+> **TUYỆT ĐỐI KHÔNG `docker compose build` ở máy đích.** `avd-seed/` bị
+> `.gitignore` chặn (2.5 GB, chứa credential Google), nên bản `git clone` ở máy
+> đích chỉ có `.gitkeep`. Build ở đó ra image **không có seed**, `create-avd.sh`
+> rơi về nhánh tạo AVD trắng, và bạn phải đăng nhập CH Play lại — không có lỗi
+> nào báo ra, chỉ là màn hình đăng nhập hiện lên như máy mới tinh.
+>
+> Hệ quả: worker image **phải** build từ máy đang giữ seed, rồi `push`. Đây cũng
+> là lý do job `build-and-push` trong CI không tạo được worker image dùng được
+> seed — CI checkout từ git nên không bao giờ có file đó.
+
+| | |
+|---|---|
+| Không muốn dùng seed, tạo AVD trắng | `AVD_SEED_DISABLE=1` trong `.env.worker` |
+| Đổi tài khoản | Đăng nhập lại qua noVNC → chạy lại `capture-avd-seed.sh` → build lại |
+| Seed nằm ở đâu trong image | `/opt/avd-seed/avd-seed.tar.gz` |
+
+**Ba điều dễ mất tiền:**
+
+1. **Image chứa thông tin đăng nhập Google.** Ai `docker pull` được là vào được
+   tài khoản. Repo Docker Hub phải private. `.gitignore` đã chặn seed khỏi git.
+2. **Không chạy hai bản clone cùng lúc.** Clone giữ nguyên `android_id` và GSF
+   ID → Google coi là *một* thiết bị ở hai nơi, huỷ phiên một bên rồi bắt xác
+   minh lại. Seed để **chuyển máy**, không phải để nhân bản đội worker; nhiều
+   worker thì mỗi con một tài khoản và một seed riêng.
+3. **Không phải vĩnh viễn.** Token vẫn bị Google thử thách lại sau vài tuần đến
+   vài tháng, nhanh hơn nếu đổi IP sang quốc gia khác. Giữ `WORKER_GUI=on` để
+   còn đường vào noVNC xử lý tay khi bị hỏi.
+
+Đã kiểm chứng end-to-end trên volume trắng: Android boot sau ~385s, tài khoản
+và `android_id` giữ nguyên, `sdcard.img` dựng lại đúng 2.0 GB. Thư mục AVD ở máy
+mới còn **4.9 GB** thay vì 15 GB như trước, nhờ bỏ `-c` và không mang sdcard
+theo seed.
+
+Kích thước seed 2.4 GB gần như toàn bộ là `userdata-qemu.img.qcow2`. Android
+mã hoá partition đó (FBE) nên dữ liệu đã ngẫu nhiên — nén thêm không ăn (đo
+thật: 300 MB → 310 MB, gzip làm *phình*). Đừng mất thời gian tối ưu chỗ này.
+
+Ảnh hưởng lên kích thước image worker, đo sau khi build thật:
+
+| | Trước | Sau |
+|---|---|---|
+| Phải push/pull qua registry | 2.97 GB | **5.51 GB** |
+| Chiếm trên đĩa máy local | 7.95 GB | 13 GB |
+
+Hai con số chênh nhau vì containerd giữ cả blob nén lẫn bản đã bung. Cái quyết
+định thời gian `push`/`pull` là dòng trên, không phải `docker images` cột đầu.
+
 ---
 
 ## 6. Xử lý sự cố

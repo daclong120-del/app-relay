@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { getInstalledPaths } from './android/adb.js';
-import { triggerPlayStoreInstall, getEstimatedInstallCoordinates } from './pipeline/installer.js';
+import { triggerPlayStoreInstall, getEstimatedInstallCoordinates, findInstallButton } from './pipeline/installer.js';
 import { validateZipArchive } from './pipeline/puller.js';
 import { isApkPath, selectorFor, selectorMatches } from '@app-relay/contracts';
 
@@ -82,6 +82,53 @@ describe('Worker Unit & Pipeline Tests', () => {
       const coords = await getEstimatedInstallCoordinates();
       assert.ok(coords.x > 0);
       assert.ok(coords.y > 0);
+    });
+  });
+
+  describe('findInstallButton — đọc nút Install từ cây UI', () => {
+    it('lấy tâm nút khi text đứng trước bounds', () => {
+      const xml = '<node text="Install" bounds="[100,200][500,300]" />';
+      assert.deepStrictEqual(findInstallButton(xml), { x: 300, y: 250 });
+    });
+
+    it('lấy tâm nút khi bounds đứng trước text', () => {
+      const xml = '<node bounds="[100,200][500,300]" text="Install" />';
+      assert.deepStrictEqual(findInstallButton(xml), { x: 300, y: 250 });
+    });
+
+    it('đọc được nhãn tiếng Việt và content-desc', () => {
+      assert.deepStrictEqual(
+        findInstallButton('<node text="Cài đặt" bounds="[0,0][100,100]" />'),
+        { x: 50, y: 50 }
+      );
+      assert.deepStrictEqual(
+        findInstallButton('<node content-desc="Install" bounds="[10,10][30,30]" />'),
+        { x: 20, y: 20 }
+      );
+    });
+
+    it('trả null cho dump của hộp thoại ANR', () => {
+      // Đây là thứ THẬT SỰ chụp được khi máy quá tải: hộp thoại "Application Not
+      // Responding" nằm đè lên Play Store, package `android`, khoảng chục node,
+      // không có nút Install nào. Bản cũ coi đây là "không khớp" rồi lặng lẽ bấm
+      // theo toạ độ đoán — cú bấm rơi vào hộp thoại và không có gì được cài.
+      const anrDump =
+        '<?xml version="1.0" encoding="UTF-8"?><hierarchy rotation="0">' +
+        '<node index="0" text="" package="android" bounds="[0,0][1080,2400]">' +
+        '<node index="0" text="Digital Wellbeing isn\'t responding" package="android" bounds="[54,1000][1026,1100]" />' +
+        '<node index="1" text="Close app" package="android" bounds="[54,1200][1026,1300]" />' +
+        '<node index="2" text="Wait" package="android" bounds="[54,1320][1026,1420]" />' +
+        '</node></hierarchy>';
+      assert.strictEqual(findInstallButton(anrDump), null);
+    });
+
+    it('trả null khi dump rỗng hoặc không có nút nào', () => {
+      assert.strictEqual(findInstallButton(''), null);
+      assert.strictEqual(findInstallButton('<node text="Open" bounds="[0,0][10,10]" />'), null);
+    });
+
+    it('trả null khi bounds hỏng thay vì tính ra NaN', () => {
+      assert.strictEqual(findInstallButton('<node text="Install" bounds="[a,b][c,d]" />'), null);
     });
   });
 

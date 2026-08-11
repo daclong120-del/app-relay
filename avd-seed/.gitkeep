@@ -1,0 +1,9 @@
+# Thư mục này phải TỒN TẠI để `COPY avd-seed/ /opt/avd-seed/` trong
+# apps/worker/Dockerfile không làm hỏng build ở máy chưa chụp seed.
+#
+# avd-seed.tar.gz sinh ra ở đây bởi deploy/capture-avd-seed.sh, nặng ~2.5 GB và
+# chứa thông tin đăng nhập Google — .gitignore chặn không cho lên git.
+#
+# Để ở gốc repo chứ KHÔNG phải trong apps/worker/docker/ là có lý do: cuối
+# Dockerfile có `COPY apps/worker ./apps/worker`, nên seed nằm dưới đó sẽ bị
+# copy vào image lần thứ hai, tốn thêm 2.5 GB mà không ai dùng tới.

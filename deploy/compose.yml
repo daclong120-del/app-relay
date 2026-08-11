@@ -42,7 +42,7 @@ services:
       # while the server binds IPv4 0.0.0.0 only, so the probe gets ECONNREFUSED
       # and the container never turns healthy — which in turn blocks worker's
       # depends_on: service_healthy.
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:5500/v1/health"]
+      test: [ "CMD", "wget", "-q", "--spider", "http://127.0.0.1:5500/v1/health" ]
       interval: 15s
       timeout: 5s
       retries: 5

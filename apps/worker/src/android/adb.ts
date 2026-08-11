@@ -83,6 +83,59 @@ export async function wakeAndUnlockDevice(): Promise<void> {
   await applyScreenOffTimeout(SCREEN_OFF_TIMEOUT);
 }
 
+/** Cửa sổ đang giữ focus, ví dụ "com.android.vending/...MainActivity". '' nếu không đọc được. */
+export async function getCurrentFocus(): Promise<string> {
+  try {
+    const raw = await execAdb('shell dumpsys window');
+    const m = raw.match(/mCurrentFocus=Window\{[^}]*\}/);
+    return m ? m[0] : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Đóng hộp thoại "Application Not Responding" nếu có.
+ *
+ * ANR là kẻ phá hoại tệ nhất với mọi tự động hoá UI, và tệ vì nó VÔ HÌNH với
+ * code không đi tìm nó: hộp thoại nằm đè lên tất cả và giữ focus, nên
+ * `uiautomator dump` chụp được ĐÚNG NÓ (khoảng 12 node, package `android`)
+ * thay vì màn hình thật, còn mọi `input tap` thì rơi vào nó. Nhìn từ phía
+ * pipeline, triệu chứng chỉ là "không tìm thấy nút cần bấm" — hoàn toàn không
+ * gợi ý gì tới nguyên nhân.
+ *
+ * Trả về tên package đang treo nếu có xử lý, chuỗi rỗng nếu màn hình sạch.
+ */
+export async function dismissAnrDialog(maxAttempts = 3): Promise<string> {
+  let blocker = '';
+
+  for (let i = 0; i < maxAttempts; i++) {
+    const focus = await getCurrentFocus();
+    const anr = focus.match(/Application Not Responding:\s*([A-Za-z0-9._]+)/);
+    if (!anr) return blocker;
+
+    blocker = anr[1];
+    console.warn(`[ADB] ANR dialog detected for ${blocker} — dismissing (attempt ${i + 1}/${maxAttempts}).`);
+
+    // BACK đóng hộp thoại; force-stop để nó đừng treo lại ngay sau đó.
+    try {
+      await execAdb('shell input keyevent KEYCODE_BACK');
+      await execAdb(`shell am force-stop ${blocker}`);
+    } catch (err) {
+      console.warn(`[ADB] Failed to dismiss ANR for ${blocker}: ${err}`);
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+
+  const still = await getCurrentFocus();
+  if (/Application Not Responding/.test(still)) {
+    // Không ném lỗi ở đây: người gọi mới biết ANR này có chặn việc của mình
+    // hay không, và thông báo lỗi nên nói theo ngữ cảnh của họ.
+    console.warn(`[ADB] ANR dialog still present after ${maxAttempts} attempts: ${still}`);
+  }
+  return blocker;
+}
+
 export async function getInstalledPaths(packageId: string): Promise<string[]> {
   if (!packageId || !/^[a-zA-Z0-9._]+$/.test(packageId)) {
     return [];

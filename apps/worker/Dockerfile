@@ -108,6 +108,27 @@ RUN set -eux; \
     LD_LIBRARY_PATH="${ANDROID_SDK_ROOT}/emulator/lib64:${ANDROID_SDK_ROOT}/emulator/lib64/qt/lib:${ANDROID_SDK_ROOT}/emulator/lib64/gles_swiftshader" \
         ldd "${ANDROID_SDK_ROOT}/emulator/qemu/linux-x86_64/qemu-system-x86_64" | grep "not found" || true
 
+# 4. Seed AVD — phiên đăng nhập Google Play đã nướng sẵn.
+#
+#    COPY cả THƯ MỤC chứ không phải file: `COPY avd-seed/avd-seed.tar.gz` sẽ làm
+#    hỏng build ở mọi máy chưa chụp seed, còn COPY thư mục thì thư mục rỗng (chỉ
+#    có .gitkeep) vẫn build bình thường — create-avd.sh không thấy seed thì tạo
+#    AVD trắng như cũ. Nhờ vậy repo vẫn build được khi chưa ai đăng nhập lần nào.
+#
+#    Nguồn là avd-seed/ ở GỐC repo, không phải apps/worker/docker/seed/: cuối
+#    file có `COPY apps/worker ./apps/worker`, nên seed để dưới đó sẽ nằm trong
+#    image hai lần — thêm 2.5 GB chết không ai đọc tới.
+#
+#    Đặt TRƯỚC phần COPY mã nguồn cũng là có chủ đích: seed nặng ~2.5 GB nhưng
+#    gần như không bao giờ đổi, còn mã nguồn sửa liên tục. Để sau thì mỗi lần
+#    sửa một dòng .ts là Docker phải đóng gói lại 2.5 GB.
+#
+#    ⚠ Từ lúc có seed, image NÀY CHỨA THÔNG TIN ĐĂNG NHẬP GOOGLE. Ai pull được
+#    image là vào được tài khoản đó. Registry phải để private.
+#
+#    Chụp seed bằng: deploy/capture-avd-seed.sh
+COPY avd-seed/ /opt/avd-seed/
+
 # Công tắc GUI. `on` = có cửa sổ emulator + noVNC (cần lúc đăng nhập Google
 # Play). `off` = emulator chạy -no-window, không bật openbox/x11vnc/novnc —
 # tiết kiệm CPU đáng kể trên VPS yếu.

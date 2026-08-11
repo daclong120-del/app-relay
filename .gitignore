@@ -31,6 +31,13 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Seed AVD — ~2.5 GB nhị phân, và bên trong là thông tin đăng nhập Google
+# (accounts_ce.db, GSF ID, auth token nằm trong userdata-qemu.img.qcow2).
+# Sinh ra bởi deploy/capture-avd-seed.sh, nướng vào image lúc build.
+# Giữ .gitkeep để thư mục vẫn tồn tại — Dockerfile COPY nó, thiếu là hỏng build.
+/avd-seed/*
+!/avd-seed/.gitkeep
+
 # Local tools & SDKs
 tools/
 cmdline-tools/
