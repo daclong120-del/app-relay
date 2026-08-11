@@ -5,6 +5,10 @@
 #   cd /opt/app-relay/deploy
 #   DOMAIN=api.tenmien.com CADDY_EMAIL=ban@tenmien.com ./bootstrap.sh
 #
+# Chưa có tên miền, muốn chạy thử trước — API ra HTTP trần trên cổng 3000:
+#
+#   ./bootstrap.sh --http-only
+#
 # Máy đích chỉ cần Docker Engine + Compose plugin. Không cài Node, không cài
 # Java, không cài Android SDK, không cần project Supabase Cloud — Postgres và
 # PostgREST chạy trong chính compose này.
@@ -25,13 +29,15 @@ cd "$(dirname "$(readlink -f "$0")")"
 
 DO_BUILD=1
 ASSUME_YES=0
+HTTP_ONLY=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --no-build)  DO_BUILD=0 ;;
-    -y|--yes)    ASSUME_YES=1 ;;
+    --no-build)             DO_BUILD=0 ;;
+    -y|--yes)               ASSUME_YES=1 ;;
+    --http-only|--no-tls)   HTTP_ONLY=1 ;;
     -h|--help)
-      sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -156,29 +162,51 @@ else
 fi
 
 if command -v ss >/dev/null 2>&1; then
-  for port in 80 443; do
+  if [ "$HTTP_ONLY" = 1 ]; then
+    NEEDED_PORTS="3000"
+    PORT_HINT="API nghe trực tiếp ở cổng 3000 trong chế độ --http-only."
+  else
+    NEEDED_PORTS="80 443"
+    PORT_HINT="Caddy cần cả 80 (thử thách ACME) lẫn 443. Tắt nginx/apache trên host trước."
+  fi
+  for port in $NEEDED_PORTS; do
     if ss -ltn "sport = :$port" 2>/dev/null | grep -q LISTEN; then
-      die "Cổng $port đang bị chiếm. Caddy cần cả 80 (thử thách ACME) lẫn 443. Tắt nginx/apache trên host trước."
+      die "Cổng $port đang bị chiếm. $PORT_HINT"
     fi
   done
-  ok "cổng 80 và 443 còn trống"
+  ok "cổng $(echo "$NEEDED_PORTS" | tr ' ' ',') còn trống"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Domain
 # ─────────────────────────────────────────────────────────────────────────────
 
-step "Domain và TLS"
+PUBLIC_IP="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
 
-DOMAIN="${DOMAIN:-$(env_get .env DOMAIN)}"
-CADDY_EMAIL="${CADDY_EMAIL:-$(env_get .env CADDY_EMAIL)}"
+if [ "$HTTP_ONLY" = 1 ]; then
+  step "Chế độ chạy thử — HTTP trần, KHÔNG có TLS"
 
-ask DOMAIN      "Domain trỏ về VPS này (vd: api.tenmien.com)"
-ask CADDY_EMAIL "Email nhận cảnh báo Let's Encrypt"
+  # Vẫn ghi DOMAIN vào .env (giá trị rỗng cũng được) để lúc chuyển sang HTTPS
+  # chỉ phải sửa một chỗ.
+  DOMAIN="${DOMAIN:-$(env_get .env DOMAIN)}"
+  CADDY_EMAIL="${CADDY_EMAIL:-$(env_get .env CADDY_EMAIL)}"
+
+  warn "API sẽ nghe ở http://${PUBLIC_IP:-<IP-VPS>}:3000 — không mã hoá."
+  warn "API_TOKEN đi qua Internet dưới dạng chữ đọc được. Ai chen được vào"
+  warn "đường truyền đều lấy được token và gọi API thay bạn."
+  warn "Dùng để tự kiểm tra. ĐỪNG đưa địa chỉ này cho đối tác thật."
+  confirm "Đã hiểu, tiếp tục?" || die "Dừng lại. Chạy không có --http-only để dùng domain + TLS."
+else
+  step "Domain và TLS"
+
+  DOMAIN="${DOMAIN:-$(env_get .env DOMAIN)}"
+  CADDY_EMAIL="${CADDY_EMAIL:-$(env_get .env CADDY_EMAIL)}"
+
+  ask DOMAIN      "Domain trỏ về VPS này (vd: api.tenmien.com)"
+  ask CADDY_EMAIL "Email nhận cảnh báo Let's Encrypt"
 
 # Let's Encrypt cấp cert qua HTTP-01: A record phải trỏ đúng IP TRƯỚC khi
 # Caddy khởi động, nếu không cert fail và domain trả lỗi TLS.
-PUBLIC_IP="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
 RESOLVED="$(getent hosts "$DOMAIN" 2>/dev/null | awk 'NR==1{print $1}' || true)"
 if [ -n "$PUBLIC_IP" ] && [ -n "$RESOLVED" ] && [ "$PUBLIC_IP" != "$RESOLVED" ]; then
   warn "$DOMAIN đang trỏ $RESOLVED nhưng IP public của máy là $PUBLIC_IP."
@@ -190,6 +218,7 @@ elif [ -z "$RESOLVED" ]; then
 else
   ok "$DOMAIN → $RESOLVED"
 fi
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. Sinh cấu hình
@@ -197,8 +226,18 @@ fi
 
 step "Sinh cấu hình và secret"
 
-COMPOSE_FILE_LIST="compose.yml:compose.supabase.yaml:compose.prod.yaml"
-[ "$USE_KVM" = 1 ] && COMPOSE_FILE_LIST="compose.yml:compose.kvm.yaml:compose.supabase.yaml:compose.prod.yaml"
+COMPOSE_FILE_LIST="compose.yml"
+[ "$USE_KVM" = 1 ] && COMPOSE_FILE_LIST="${COMPOSE_FILE_LIST}:compose.kvm.yaml"
+COMPOSE_FILE_LIST="${COMPOSE_FILE_LIST}:compose.supabase.yaml:compose.prod.yaml"
+
+if [ "$HTTP_ONLY" = 1 ]; then
+  # compose.http.yaml đổi bind của api từ 127.0.0.1 sang 0.0.0.0. Profile để
+  # TRỐNG nên caddy (nằm trong profiles: [production]) không khởi động.
+  COMPOSE_FILE_LIST="${COMPOSE_FILE_LIST}:compose.http.yaml"
+  COMPOSE_PROFILES_VALUE=""
+else
+  COMPOSE_PROFILES_VALUE="production"
+fi
 
 # deploy/.env chỉ chứa biến compose NỘI SUY (không phải biến ứng dụng).
 # COMPOSE_FILE và COMPOSE_PROFILES nằm ở đây là có chủ đích: docker compose đọc
@@ -209,8 +248,11 @@ write_new .env <<EOF || true
 # Đây là biến cho docker compose nội suy, không phải biến ứng dụng.
 
 COMPOSE_FILE=${COMPOSE_FILE_LIST}
-COMPOSE_PROFILES=production
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VALUE}
 
+# Chế độ --http-only: DOMAIN để trống, caddy không chạy. Chuyển sang HTTPS thì
+# điền DOMAIN + CADDY_EMAIL, bỏ ":compose.http.yaml" khỏi COMPOSE_FILE ở trên,
+# đặt COMPOSE_PROFILES=production, rồi \`docker compose up -d\`.
 DOMAIN=${DOMAIN}
 CADDY_EMAIL=${CADDY_EMAIL}
 
@@ -380,43 +422,83 @@ else
   warn "/v1/system/status lỗi — API sống nhưng có thể chưa đọc được database. Xem: docker compose logs api"
 fi
 
-# Kiểm tra từ ngoài. Cert Let's Encrypt cần vài chục giây sau khi Caddy lên.
-if command -v curl >/dev/null 2>&1; then
-  printf '  chờ cert TLS cho %s' "$DOMAIN"
-  PUBLIC_OK=0
-  for _ in $(seq 1 24); do
-    if curl -fsS --max-time 5 "https://${DOMAIN}/v1/health" >/dev/null 2>&1; then
-      PUBLIC_OK=1; break
+# Kiểm tra từ ngoài.
+if [ "$HTTP_ONLY" = 1 ]; then
+  BASE_URL="http://${PUBLIC_IP:-127.0.0.1}:3000"
+  # Gọi qua IP public chứ không phải 127.0.0.1: mục đích là xác nhận gói tin đi
+  # được từ Internet vào, tức là security group / firewall đã mở cổng 3000.
+  if command -v curl >/dev/null 2>&1 && [ -n "$PUBLIC_IP" ]; then
+    if curl -fsS --max-time 8 "http://${PUBLIC_IP}:3000/v1/health" >/dev/null 2>&1; then
+      ok "${BASE_URL}/v1/health trả lời từ IP public — API đã ra được Internet"
+    else
+      warn "Không gọi được ${BASE_URL}/v1/health từ IP public."
+      warn "Container thì sống (test bên trên đã qua), nên gần như chắc chắn là"
+      warn "FIREWALL chặn cổng 3000 — trên FPT Cloud là Security Group của VM."
+      warn "Kiểm tra thêm: ufw status  (nếu bật thì: ufw allow 3000/tcp)"
     fi
-    printf '.'
-    sleep 5
-  done
-  printf '\n'
-  if [ "$PUBLIC_OK" = 1 ]; then
-    ok "https://${DOMAIN}/v1/health trả lời — API đã public"
   else
-    warn "Chưa gọi được https://${DOMAIN}/v1/health."
-    warn "Thường là A record chưa trỏ đúng, hoặc firewall chặn 80/443 (ACME cần CẢ HAI)."
-    warn "Xem log cấp cert: docker compose logs caddy | tail -50"
+    warn "Bỏ qua kiểm tra từ ngoài (thiếu curl hoặc không lấy được IP public)."
   fi
 else
-  warn "Host không có curl — bỏ qua kiểm tra HTTPS từ ngoài. Tự thử: curl https://${DOMAIN}/v1/health"
+  BASE_URL="https://${DOMAIN}"
+  # Cert Let's Encrypt cần vài chục giây sau khi Caddy lên.
+  if command -v curl >/dev/null 2>&1; then
+    printf '  chờ cert TLS cho %s' "$DOMAIN"
+    PUBLIC_OK=0
+    for _ in $(seq 1 24); do
+      if curl -fsS --max-time 5 "https://${DOMAIN}/v1/health" >/dev/null 2>&1; then
+        PUBLIC_OK=1; break
+      fi
+      printf '.'
+      sleep 5
+    done
+    printf '\n'
+    if [ "$PUBLIC_OK" = 1 ]; then
+      ok "https://${DOMAIN}/v1/health trả lời — API đã public"
+    else
+      warn "Chưa gọi được https://${DOMAIN}/v1/health."
+      warn "Thường là A record chưa trỏ đúng, hoặc firewall chặn 80/443 (ACME cần CẢ HAI)."
+      warn "Xem log cấp cert: docker compose logs caddy | tail -50"
+    fi
+  else
+    warn "Host không có curl — bỏ qua kiểm tra HTTPS từ ngoài. Tự thử: curl https://${DOMAIN}/v1/health"
+  fi
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 7. Tổng kết
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Dựng sẵn thành biến thay vì nhét heredoc lồng vào heredoc: heredoc trong
+# heredoc mà đặt nháy sai một chỗ là mã màu in ra thành chữ.
+HTTPS_NOTE=""
+if [ "$HTTP_ONLY" = 1 ]; then
+  HTTPS_NOTE="$(printf '\n\033[1;33m═══ Khi có domain, bật HTTPS ═══\033[0m\n')
+  Sửa deploy/.env — ba dòng:
+
+    DOMAIN=api.tenmien.com
+    CADDY_EMAIL=ban@tenmien.com
+    COMPOSE_PROFILES=production
+
+  rồi bỏ \":compose.http.yaml\" ở cuối dòng COMPOSE_FILE, và chạy:
+
+    docker compose up -d
+
+  Caddy tự xin cert. Không phải build lại, không mất dữ liệu.
+  Nhớ đóng cổng 3000 trên firewall sau đó — API đã đi qua 443 rồi.
+"
+fi
+
 cat <<EOF
 
 $(printf '\033[1;32m═══ Stack đã chạy ═══\033[0m')
 
-  API public     https://${DOMAIN}
+  API            ${BASE_URL}$([ "$HTTP_ONLY" = 1 ] && printf '   (HTTP TRẦN — chỉ để tự test)')
   API_TOKEN      $(env_get .env.api API_TOKEN)
 
   Thử ngay:
-    curl https://${DOMAIN}/v1/health
-    curl -H "Authorization: Bearer \$API_TOKEN" https://${DOMAIN}/v1/system/status
+    curl ${BASE_URL}/v1/health
+    curl -H "Authorization: Bearer \$API_TOKEN" ${BASE_URL}/v1/system/status
 
   Vận hành — đứng trong $(pwd), KHÔNG cần cờ -f nào (đã ghi trong .env):
     docker compose ps
@@ -440,6 +522,7 @@ $(printf '\033[1;33m═══ Còn MỘT bước tay: đăng nhập Google Play 
   Theo dõi emulator boot:
     docker compose exec worker bash -c 'tail -f /tmp/worker-node-stdout*.log'
 
+${HTTPS_NOTE}
 $(printf '\033[1;31m═══ Không bao giờ chạy ═══\033[0m')
 
     docker compose down -v      # -v xoá volume → mất AVD và phiên CH Play

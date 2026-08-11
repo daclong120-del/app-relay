@@ -1,0 +1,24 @@
+# Overlay CHẠY THỬ — API ra Internet bằng HTTP trần, không có TLS.
+#
+# Bật bằng `./bootstrap.sh --http-only`. Dùng để kiểm tra emulator và luồng kéo
+# APK có chạy không, khi chưa kịp có tên miền.
+#
+# ĐÁNH ĐỔI, ghi rõ để không ai quên: API_TOKEN đi qua Internet dưới dạng chữ
+# đọc được. Bất kỳ ai chen được vào đường truyền đều lấy được token và gọi API
+# thay bạn. KHÔNG đưa địa chỉ này cho đối tác thật.
+#
+# Chuyển sang HTTPS về sau: xem docs/deploy-vps.md §8 — bỏ file này khỏi
+# COMPOSE_FILE, thêm DOMAIN vào .env, bật lại COMPOSE_PROFILES=production.
+
+services:
+  api:
+    # !override thay THẾ cả danh sách ports thay vì nối thêm vào. Không có nó,
+    # compose giữ luôn "127.0.0.1:3000:3000" của bản base rồi thêm mapping mới
+    # bên cạnh — hai mapping cùng giành cổng 3000 trên host và container chết
+    # với "address already in use".
+    ports: !override
+      - "0.0.0.0:3000:3000"
+
+  # noVNC KHÔNG được đụng tới: vẫn chỉ 127.0.0.1:6080. Nó là màn hình điều
+  # khiển emulator, không có xác thực nào cả — mở ra Internet là giao cả máy.
+  # Vào bằng SSH tunnel, xem docs/deploy-vps.md §4.

@@ -70,6 +70,34 @@ GIT_TERMINAL_PROMPT=0 git clone https://<token>@github.com/<owner>/app-relay.git
 Bỏ trống `DOMAIN` / `CADDY_EMAIL` thì script tự hỏi. Chạy trong CI hoặc qua
 `ssh <host> '...'` (không có TTY) thì **phải** truyền sẵn, kèm `--yes`.
 
+### Chưa có tên miền — chạy thử bằng HTTP trần
+
+```bash
+./bootstrap.sh --http-only
+```
+
+API ra thẳng `http://<IP-VPS>:3000`, không có Caddy, không có TLS. Dùng để kiểm
+tra emulator và luồng kéo APK khi chưa kịp có domain.
+
+**Đánh đổi phải hiểu rõ:** `API_TOKEN` đi qua Internet dưới dạng chữ đọc được.
+Ai chen được vào đường truyền — wifi công cộng, nhà mạng, router giữa đường —
+đều lấy được token và gọi API thay bạn. Chế độ này để **tự kiểm tra**, không
+đưa địa chỉ cho đối tác thật.
+
+noVNC vẫn chỉ bind `127.0.0.1:6080`, kể cả ở chế độ này. Nó là màn hình điều
+khiển emulator và **không có xác thực nào cả** — mở ra Internet là giao cả máy.
+Vào bằng SSH tunnel, §4.
+
+Cổng 3000 phải được firewall cho qua. Trên FPT Cloud là **Security Group** của
+VM; trên host còn có `ufw`:
+
+```bash
+ufw status
+ufw allow 3000/tcp     # chỉ khi ufw đang active
+```
+
+Chuyển sang HTTPS về sau: §8, không phải build lại, không mất dữ liệu.
+
 Lần đầu mất **~30–40 phút**, gần hết là build worker image: JDK 17 + Android SDK
 + system image `android-35;google_apis_playstore;x86_64` ≈ 9 GB.
 
@@ -306,3 +334,60 @@ Ghi rõ để không ai tưởng nó lo hết:
 - **Không đụng tới CI/CD.** Pipeline trong [CI-CD.md](CI-CD.md) là đường khác:
   nó *pull* image từ Docker Hub thay vì build tại chỗ. Hai đường dùng chung
   `deploy/.env*`, nên bootstrap chạy trước rồi để CI deploy tiếp là hợp lệ.
+
+---
+
+## 8. Từ HTTP trần chuyển sang HTTPS
+
+Đã chạy `--http-only`, giờ có domain rồi. Không phải build lại, không mất dữ
+liệu, không đụng tới AVD hay phiên đăng nhập CH Play.
+
+**1.** Tạo A record trỏ domain về IP VPS. Chờ nó lan — kiểm tra:
+
+```bash
+getent hosts api.tenmien.com      # phải ra đúng IP VPS
+```
+
+**2.** Sửa `deploy/.env`, đúng ba dòng:
+
+```env
+DOMAIN=api.tenmien.com
+CADDY_EMAIL=ban@tenmien.com
+COMPOSE_PROFILES=production
+```
+
+**3.** Cùng file, bỏ `:compose.http.yaml` ở cuối dòng `COMPOSE_FILE`:
+
+```env
+# trước
+COMPOSE_FILE=compose.yml:compose.kvm.yaml:compose.supabase.yaml:compose.prod.yaml:compose.http.yaml
+# sau
+COMPOSE_FILE=compose.yml:compose.kvm.yaml:compose.supabase.yaml:compose.prod.yaml
+```
+
+Bỏ overlay này thì `api` quay về bind `127.0.0.1:3000` — không còn ra Internet
+trực tiếp nữa, mọi request đi qua Caddy.
+
+**4.** Áp dụng:
+
+```bash
+cd /opt/app-relay/deploy
+docker compose up -d
+docker compose logs -f caddy      # xem quá trình xin cert
+curl https://api.tenmien.com/v1/health
+```
+
+**5.** Đóng cổng 3000 trên firewall (Security Group của FPT Cloud, và `ufw` nếu
+đang bật). API đã đi qua 443, để 3000 mở là để ngỏ một đường vòng không TLS.
+
+**6.** Đổi `API_TOKEN`. Token cũ đã từng đi qua HTTP trần nên coi như đã lộ:
+
+```bash
+NEW_TOKEN="apr_live_$(openssl rand -hex 24)"
+sed -i "s|^API_TOKEN=.*|API_TOKEN=${NEW_TOKEN}|" .env.api
+docker compose up -d api
+echo "$NEW_TOKEN"
+```
+
+Chỉ `API_TOKEN` thôi — đổi `WORKER_TOKEN` thì phải sửa cả `.env.worker` cho
+trùng, và `WORKER_TOKEN` chưa bao giờ ra khỏi mạng Docker nên không cần.
