@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "ssh": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@fangjunjie/ssh-mcp-server",
+        "--ssh-config-file",
+        "~/.ssh/config",
+        "--host",
+        "hieu-server",
+        "--whitelist",
+        "^docker (ps|logs|compose|restart).*,^git (status|log|pull).*,^npm run ci$,^pm2 (status|logs|restart).*,^tail .*,^cat /root/release-ops/\\.env\\.example$",
+        "--allowed-remote-paths",
+        "/root/release-ops",
+        "--blacklist",
+        "^rm .*,^shutdown.*,^reboot.*,.*service_role.*"
+      ]
+    }
+  }
+}

@@ -1,3 +1,23 @@
+# Quy tắc bắt buộc
+
+## Git — không bao giờ tự ý commit hoặc push
+
+- **KHÔNG chạy `git commit` khi chưa được cho phép.** Sửa file xong thì để nguyên
+  ở working tree và báo lại đã sửa gì. Người dùng tự quyết định lúc nào commit.
+- **KHÔNG chạy `git push` khi chưa được cho phép.** Push là hành động ra ngoài,
+  không lùi lại sạch được.
+- **Cho phép MỘT LẦN không phải cho phép mãi mãi.** Được duyệt commit lần này
+  thì lần sau vẫn phải hỏi lại. Đây chính là lỗi đã xảy ra ngày 2026-08-11:
+  một lần duyệt bị hiểu thành quyền vĩnh viễn, rồi tự commit + push thêm 5 lần.
+- Cách làm đúng: sửa file → tóm tắt thay đổi → **hỏi** "commit chứ?" → chờ trả lời.
+- `git status`, `git log`, `git diff`, `git show` thì thoải mái, không cần hỏi.
+
+Đã có hai lớp chặn kỹ thuật ở `.claude/settings.json` (`permissions.ask` và một
+PreToolUse hook bắt cả dạng lệnh ghép `cd ... && git commit`). Mục này ghi lại
+**lý do**, để không phải chờ hộp thoại mới nhớ ra.
+
+---
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
