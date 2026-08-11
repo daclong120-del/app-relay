@@ -1,5 +1,10 @@
 # Mở API cho đối tác gọi
 
+> **Bản đang được bảo trì là [`docs/public-access.md`](../docs/public-access.md).**
+> File này là bản ghi chép ban đầu, giữ lại để tra cứu lý do thiết kế. Các lệnh
+> `docker compose -f … -f …` bên dưới **đã lỗi thời** — sau `bootstrap.sh` thì
+> chuỗi file compose nằm ở `COMPOSE_FILE` trong `deploy/.env`, không gõ `-f` nữa.
+
 Chốt nguyên tắc:
 
 * Dùng **Cloudflare Tunnel**, không mở cổng, không cần IP public.

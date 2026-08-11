@@ -14,6 +14,7 @@ Format: `Added` / `Changed` / `Fixed` / `Removed`.
 - Bootstrap tự ký **JWT HS256 `role=service_role`** làm `SUPABASE_SECRET_KEY`. Self-host không có khoá `sb_secret_...`, nhưng PostgREST xác thực JWT bằng `PGRST_JWT_SECRET` rồi `set role` đúng như Supabase Cloud — nên `apps/api/src/database/supabase.ts` không phải đổi dòng nào.
 - `deploy/compose.prod.yaml` — overlay cho máy chạy dài ngày: xoay log `json-file` (10m × 5) cho cả 6 service, healthcheck cho `caddy`, `stop_grace_period: 120s` cho worker để emulator kịp ghi userdata 12 G xuống đĩa thay vì ăn SIGKILL sau 10 giây.
 - `docs/deploy-vps.md` — đường deploy tự chứa, tách khỏi [kick-start.md](kick-start.md) (dựng để dev) và [CI-CD.md](CI-CD.md) (pull image có sẵn).
+- **`docs/public-access.md` — Cloudflare Tunnel là đường ra Internet chính thức.** Quick vs named và vì sao quick **không** đưa cho đối tác được (URL đổi sau mỗi lần deploy), các bước chuyển quick→named, vì sao Caddy xuống hàng thay thế, và bẫy `/internal/*` không còn lớp chặn khi bỏ Caddy.
 
 ### Changed
 
@@ -23,8 +24,15 @@ Format: `Added` / `Changed` / `Fixed` / `Removed`.
 - `deploy/compose.yml` bỏ `.env` khỏi `env_file` của `api` và `worker`. Compose vốn đã tự đọc `.env` để nội suy; để nó trong `env_file` chỉ có tác dụng bơm `POSTGRES_PASSWORD` và `JWT_SECRET` vào bên trong container — riêng worker còn chạy APK của bên thứ ba.
 - `deploy/caddy/Caddyfile` chặn `/internal/*` ở lớp ngoài (404). Worker gọi `http://api:3000` qua mạng Docker nên không cần đường công khai; lộ `WORKER_TOKEN` giờ không đủ để điều khiển hàng đợi job từ Internet. Thêm HSTS, `X-Content-Type-Options`, `Referrer-Policy`, bỏ header `Server`, và `flush_interval -1` để artifact hàng trăm MB stream chứ không buffer.
 
+- **Job ④ của CI đồng bộ git trên VPS trước khi `up`.** File compose và Caddyfile **không nằm trong image** — chúng đọc từ đĩa máy đích, nên trước đây mọi thay đổi trong `deploy/` không bao giờ tới VPS dù pipeline báo xanh. Giờ `git fetch` + `reset --hard <sha>` để commit trên VPS khớp đúng commit đã build ra image. **Lệnh này xoá mọi sửa tay trên file đã track ở VPS**; `.env*` untracked nên an toàn.
+- **Job ④ không còn hardcode cờ `docker compose` nào.** `-f` và `--profile` tường minh **đè** `COMPOSE_FILE`/`COMPOSE_PROFILES` trong `deploy/.env`, nên mỗi lần deploy tự động lại âm thầm làm rơi `compose.prod.yaml` (xoay log, `stop_grace_period` của worker) lẫn `compose.supabase.yaml` — mà `--remove-orphans` thì xoá luôn container thuộc overlay bị rơi. Máy đích tự khai báo chế độ, CI chỉ đồng bộ rồi `pull` + `up -d`.
+- `docs/deploy-vps.md §8` và `docs/CI-CD.md §5.3` viết lại theo hướng tunnel là mặc định, Caddy là đường thay thế cho VPS có IP tĩnh và domain.
+
 ### Fixed
 
+- **Emulator không còn ngủ giữa các job.** `screen_off_timeout` được đặt ở ba nơi với ba giá trị khác nhau và nơi ghi sau cùng thắng: `apps/worker/src/android/adb.ts` chạy mỗi job nên nó ghi đè giá trị của script boot về lại 30 phút. Worker rảnh quá 30 phút là màn hình ngủ, job kế tiếp fail ở bước tìm phần tử UI — lỗi hiện ra không liên quan gì tới màn hình. Cả hai nơi giờ dùng `2147483647` (~24,8 ngày), override chung bằng `EMULATOR_SCREEN_OFF_TIMEOUT`.
+- **`adb shell settings put` giờ được kiểm chứng bằng cách đọc lại.** Nó thoát mã 0 kể cả khi lệnh bên trong thiết bị hỏng — điển hình là lúc adb chưa authorized — nên `set -e` lẫn `try/catch` đều không bắt được, lệnh trượt trong im lặng. `wait-for-emulator.sh` cũng chờ `adb get-state` = `device` trước khi gửi lệnh vào máy.
+- **Job ④ chạy với `set -e`.** `appleboy/ssh-action` mặc định `script_stop: false`, nên `docker compose pull` hỏng vẫn chạy tiếp tới dòng `echo "✅ deployed successfully"` và job báo xanh.
 - `.env.api.example` bổ sung 5 biến còn thiếu (`APK_TTL_HOURS`, `ARTIFACT_MIN_FREE_BYTES`, `ORPHAN_DIR_MIN_AGE_MINUTES`, `DELETE_AFTER_DOWNLOAD_GRACE_MINUTES`, `STUCK_JOB_GRACE_MINUTES`) và sửa `ARTIFACT_TTL_HOURS` từ `48` về `720` cho khớp code. Lệch này ghi trong [environment.md §6](environment.md) từ 2026-08-10.
 
 ---

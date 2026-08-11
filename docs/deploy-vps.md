@@ -341,8 +341,18 @@ Ghi rõ để không ai tưởng nó lo hết:
 
 ## 8. Từ HTTP trần chuyển sang HTTPS
 
-Đã chạy `--http-only`, giờ có domain rồi. Không phải build lại, không mất dữ
-liệu, không đụng tới AVD hay phiên đăng nhập CH Play.
+Đã chạy `--http-only`, giờ muốn cho đối tác gọi thật.
+
+> **Đường mặc định của dự án là Cloudflare Tunnel, không phải Caddy.**
+> Xem [public-access.md](public-access.md) — không cần domain trỏ về IP, không
+> mở cổng nào, và chạy được cả khi VPS nằm sau NAT.
+>
+> Phần dưới đây là **đường thay thế**: chỉ dùng khi VPS có IP tĩnh **và** đã có
+> domain trỏ về đúng IP đó. Hai đường không chạy cùng lúc — Caddy và tunnel
+> giành nhau cổng 80/443.
+
+Không phải build lại, không mất dữ liệu, không đụng tới AVD hay phiên đăng nhập
+CH Play.
 
 **1.** Tạo A record trỏ domain về IP VPS. Chờ nó lan — kiểm tra:
 

@@ -220,11 +220,26 @@ Cần thì bật trong Settings → Branches: yêu cầu PR, yêu cầu `test-an
 
 Xem §4. Chưa gãy vì migration hiện toàn là `add column`, nhưng `drop column` hay `rename` sẽ làm production 500 trong vài phút giữa job ② và job ④.
 
-### 5.3. Pipeline chỉ deploy VPS profile `production`
+### 5.3. Máy đích tự khai báo nó chạy chế độ nào
 
-Job ④ dùng `--profile production` (Caddy). WSL server chạy cloudflared và **hoàn toàn nằm ngoài pipeline** — nó deploy tay theo [runbook.md](runbook.md).
+Job ④ **không** hardcode profile nữa. Nó đọc `COMPOSE_PROFILES` từ `deploy/.env` trên chính máy đích, nên cùng một pipeline deploy được cả ba chế độ:
 
-Nghĩa là: hiện có **hai đường deploy khác nhau** cho hai môi trường, và chỉ một đường được tự động hoá. Ai vận hành WSL phải biết CI không đụng tới máy mình.
+| `COMPOSE_PROFILES` | Đường ra Internet |
+|---|---|
+| `named` | Cloudflare Tunnel, URL cố định — **mặc định cho đối tác**, xem [public-access.md](public-access.md) |
+| `quick` | Cloudflare quick tunnel, URL đổi mỗi lần restart — chỉ để tự test |
+| `production` | Caddy + Let's Encrypt, cần IP tĩnh và domain |
+| *(rỗng)* | HTTP trần qua `compose.http.yaml`, chỉ để tự test |
+
+Đổi lại: **pipeline không kiểm chứng được máy đích đang ở chế độ nào.** Ai sửa tay `deploy/.env` sai một chữ thì lần deploy kế tiếp lặng lẽ đổi đường ra Internet, và CI vẫn báo xanh. `deploy/.env` untracked nên git cũng không giữ lịch sử của nó.
+
+Chốt chặn duy nhất hiện có là đọc lại sau khi deploy:
+
+```bash
+ssh <vps> 'cd /root/app-relay/deploy && docker compose config --services'
+```
+
+> Bẫy hay gặp: thêm `compose.tunnel.yaml` vào `COMPOSE_FILE` nhưng **quên đặt `COMPOSE_PROFILES`**. Service tunnel nằm sau profile nên không được kích hoạt, và `up -d --remove-orphans` của job ④ coi container tunnel đang chạy là orphan rồi **xoá nó**. Đối tác mất đường vào, không ai được báo.
 
 ### 5.4. CI test Node 20, production chạy Node 22
 
