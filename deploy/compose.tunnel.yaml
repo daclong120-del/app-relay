@@ -4,7 +4,7 @@
 # cần IP public, không mở cổng, không đụng router — đúng thứ cần khi server
 # nằm trên máy cá nhân, trong WSL, hoặc sau CGNAT.
 #
-# Vì cloudflared nằm chung network với api, nó gọi thẳng http://api:3000 qua
+# Vì cloudflared nằm chung network với api, nó gọi thẳng http://api:5500 qua
 # mạng nội bộ Docker; không cần publish cổng nào ra host.
 #
 # Cả hai service đều nằm sau profile để không bao giờ chạy nhầm cả hai cùng
@@ -29,7 +29,7 @@ services:
     profiles:
       - quick
     # URL tạm, in ra trong log lúc khởi động.
-    command: tunnel --no-autoupdate --url http://api:3000
+    command: tunnel --no-autoupdate --url http://api:5500
     depends_on:
       api:
         condition: service_healthy
@@ -42,7 +42,7 @@ services:
     profiles:
       - named
     # Token mang sẵn cấu hình hostname và route, tạo ở Cloudflare Dashboard →
-    # Zero Trust → Networks → Tunnels. Public hostname trỏ về http://api:3000.
+    # Zero Trust → Networks → Tunnels. Public hostname trỏ về http://api:5500.
     #
     # Truyền qua biến môi trường chứ không nhét vào `command`: compose nội suy
     # command của MỌI service kể cả service không thuộc profile đang bật, nên

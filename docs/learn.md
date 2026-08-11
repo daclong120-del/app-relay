@@ -153,11 +153,11 @@ Hệ quả có ý thức: client tải hoàn toàn bằng `Range` sẽ **không 
 
 **Vấn đề**: container `api` không bao giờ chuyển `healthy`, kéo theo `worker` treo vĩnh viễn ở `depends_on: service_healthy`.
 
-**Triệu chứng**: `wget --spider http://localhost:3000/v1/health` trong container trả `ECONNREFUSED`, nhưng `curl` từ host vào `127.0.0.1:3000` thì được.
+**Triệu chứng**: `wget --spider http://localhost:5500/v1/health` trong container trả `ECONNREFUSED`, nhưng `curl` từ host vào `127.0.0.1:5500` thì được.
 
 **Nguyên nhân**: trong container, `localhost` phân giải ra `::1` (IPv6) trước. Server `app.listen(PORT, '0.0.0.0')` chỉ bind IPv4.
 
-**Hiệu quả**: healthcheck dùng `http://127.0.0.1:3000/v1/health`.
+**Hiệu quả**: healthcheck dùng `http://127.0.0.1:5500/v1/health`.
 
 **Bài học**: `localhost` không phải `127.0.0.1`. Trong healthcheck và script nội bộ, **luôn ghi địa chỉ IP tường minh**. Và triệu chứng "worker treo ở depends_on" hầu như luôn là healthcheck của service phụ thuộc, không phải lỗi của worker.
 

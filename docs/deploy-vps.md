@@ -78,7 +78,7 @@ Bỏ trống `DOMAIN` / `CADDY_EMAIL` thì script tự hỏi. Chạy trong CI ho
 ./bootstrap.sh --http-only
 ```
 
-API ra thẳng `http://<IP-VPS>:3000`, không có Caddy, không có TLS. Dùng để kiểm
+API ra thẳng `http://<IP-VPS>:5500`, không có Caddy, không có TLS. Dùng để kiểm
 tra emulator và luồng kéo APK khi chưa kịp có domain.
 
 **Đánh đổi phải hiểu rõ:** `API_TOKEN` đi qua Internet dưới dạng chữ đọc được.
@@ -90,12 +90,12 @@ noVNC vẫn chỉ bind `127.0.0.1:6080`, kể cả ở chế độ này. Nó là
 khiển emulator và **không có xác thực nào cả** — mở ra Internet là giao cả máy.
 Vào bằng SSH tunnel, §4.
 
-Cổng 3000 phải được firewall cho qua. Trên FPT Cloud là **Security Group** của
+Cổng 5500 phải được firewall cho qua. Trên FPT Cloud là **Security Group** của
 VM; trên host còn có `ufw`:
 
 ```bash
 ufw status
-ufw allow 3000/tcp     # chỉ khi ufw đang active
+ufw allow 5500/tcp     # chỉ khi ufw đang active
 ```
 
 Chuyển sang HTTPS về sau: §8, không phải build lại, không mất dữ liệu.
@@ -377,7 +377,7 @@ COMPOSE_FILE=compose.yml:compose.kvm.yaml:compose.supabase.yaml:compose.prod.yam
 COMPOSE_FILE=compose.yml:compose.kvm.yaml:compose.supabase.yaml:compose.prod.yaml
 ```
 
-Bỏ overlay này thì `api` quay về bind `127.0.0.1:3000` — không còn ra Internet
+Bỏ overlay này thì `api` quay về bind `127.0.0.1:5500` — không còn ra Internet
 trực tiếp nữa, mọi request đi qua Caddy.
 
 **4.** Áp dụng:
@@ -389,8 +389,8 @@ docker compose logs -f caddy      # xem quá trình xin cert
 curl https://api.tenmien.com/v1/health
 ```
 
-**5.** Đóng cổng 3000 trên firewall (Security Group của FPT Cloud, và `ufw` nếu
-đang bật). API đã đi qua 443, để 3000 mở là để ngỏ một đường vòng không TLS.
+**5.** Đóng cổng 5500 trên firewall (Security Group của FPT Cloud, và `ufw` nếu
+đang bật). API đã đi qua 443, để 5500 mở là để ngỏ một đường vòng không TLS.
 
 **6.** Đổi `API_TOKEN`. Token cũ đã từng đi qua HTTP trần nên coi như đã lộ:
 

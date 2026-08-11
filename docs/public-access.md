@@ -5,7 +5,7 @@
 Chốt nguyên tắc:
 
 - Đối tác gọi qua **Cloudflare Tunnel**. Không mở cổng, không cần IP public, Cloudflare lo TLS.
-- `cloudflared` chạy như một container trong compose, nối thẳng `api:3000` qua mạng Docker nội bộ.
+- `cloudflared` chạy như một container trong compose, nối thẳng `api:5500` qua mạng Docker nội bộ.
 - Đối tác chỉ nhận đúng hai giá trị: `BASE_URL` và `API_TOKEN`. Họ không cần biết Cloudflare, Supabase, worker hay tài khoản Google Play.
 
 ---
@@ -49,7 +49,7 @@ docker compose config --services      # phải thấy cloudflared-named trong da
 docker compose up -d
 ```
 
-Lấy token: Cloudflare Dashboard → Zero Trust → Networks → Tunnels → Create a tunnel → Docker. Trong **Public Hostname** trỏ về `http://api:3000`.
+Lấy token: Cloudflare Dashboard → Zero Trust → Networks → Tunnels → Create a tunnel → Docker. Trong **Public Hostname** trỏ về `http://api:5500`.
 
 ---
 
@@ -57,7 +57,7 @@ Lấy token: Cloudflare Dashboard → Zero Trust → Networks → Tunnels → Cr
 
 Làm khi chuyển từ tự test sang cho đối tác dùng thật. Không build lại, không mất dữ liệu, không đụng AVD hay phiên đăng nhập CH Play.
 
-**1.** Tạo named tunnel trên Cloudflare Dashboard, lấy token, trỏ Public Hostname về `http://api:3000`.
+**1.** Tạo named tunnel trên Cloudflare Dashboard, lấy token, trỏ Public Hostname về `http://api:5500`.
 
 **2.** Sửa `deploy/.env`:
 
@@ -66,7 +66,7 @@ COMPOSE_PROFILES=named
 CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoi...
 ```
 
-**3.** Bỏ `compose.http.yaml` khỏi `COMPOSE_FILE`. Tunnel đi qua mạng Docker nội bộ nên `api` **không cần publish cổng nào ra host** — kể cả `127.0.0.1:3000`. Còn để overlay này là còn một đường vòng không TLS vào thẳng API.
+**3.** Bỏ `compose.http.yaml` khỏi `COMPOSE_FILE`. Tunnel đi qua mạng Docker nội bộ nên `api` **không cần publish cổng nào ra host** — kể cả `127.0.0.1:5500`. Còn để overlay này là còn một đường vòng không TLS vào thẳng API.
 
 **4.** Áp dụng rồi kiểm tra:
 
@@ -76,7 +76,7 @@ docker compose logs cloudflared-named | tail -20
 curl -fsS https://api.tenmien.com/v1/health
 ```
 
-**5.** Đóng cổng đã mở trước đó ở chế độ HTTP trần (`80` hoặc `3000`) — cả `ufw` lẫn Security Group của nhà cung cấp.
+**5.** Đóng cổng đã mở trước đó ở chế độ HTTP trần (`80` hoặc `5500`) — cả `ufw` lẫn Security Group của nhà cung cấp.
 
 **6.** Đổi `API_TOKEN`. Token cũ đã từng đi qua HTTP trần nên coi như đã lộ:
 
@@ -142,7 +142,7 @@ Chênh tới 3000 lần.
 
 **Một token dùng chung.** Mọi đối tác dùng chung `API_TOKEN`. Không cắt riêng được một bên, không biết bên nào gọi gì, lộ token thì phải đổi cho tất cả. Bản `1.0` cố ý không có bảng tài khoản — xem [security.md](security.md). Khi cần tách quyền thì thêm bảng `api_keys` và hạn ngạch job đang chờ theo từng key.
 
-**`/internal/v1/*` không được ra Internet.** Đó là mặt phẳng của worker. Với Caddy thì [Caddyfile:19](../deploy/caddy/Caddyfile#L19) trả 404. Với named tunnel, Public Hostname trỏ thẳng `http://api:3000` nên **không có lớp chặn nào tương đương** — kiểm tra lại sau khi dựng:
+**`/internal/v1/*` không được ra Internet.** Đó là mặt phẳng của worker. Với Caddy thì [Caddyfile:19](../deploy/caddy/Caddyfile#L19) trả 404. Với named tunnel, Public Hostname trỏ thẳng `http://api:5500` nên **không có lớp chặn nào tương đương** — kiểm tra lại sau khi dựng:
 
 ```bash
 curl -o /dev/null -w '%{http_code}\n' https://api.tenmien.com/internal/v1/jobs/next

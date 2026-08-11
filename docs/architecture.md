@@ -26,7 +26,7 @@ flowchart LR
     subgraph HOST["Host — docker compose"]
         Edge["caddy (profile production)<br/>hoặc cloudflared (profile quick/named)"]
 
-        subgraph API["apps/api — Express :3000"]
+        subgraph API["apps/api — Express :5500"]
             Public["Public /v1<br/>health · system · apps<br/>jobs · artifacts"]
             Internal["Internal /internal/v1<br/>workers · jobs"]
             Cron["background/cleanup.ts<br/>cron 1h"]

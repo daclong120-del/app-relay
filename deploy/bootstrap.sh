@@ -5,7 +5,7 @@
 #   cd /opt/app-relay/deploy
 #   DOMAIN=api.tenmien.com CADDY_EMAIL=ban@tenmien.com ./bootstrap.sh
 #
-# Chưa có tên miền, muốn chạy thử trước — API ra HTTP trần trên cổng 3000:
+# Chưa có tên miền, muốn chạy thử trước — API ra HTTP trần trên cổng 5500:
 #
 #   ./bootstrap.sh --http-only
 #
@@ -177,8 +177,8 @@ fi
 
 if command -v ss >/dev/null 2>&1; then
   if [ "$HTTP_ONLY" = 1 ]; then
-    NEEDED_PORTS="3000"
-    PORT_HINT="API nghe trực tiếp ở cổng 3000 trong chế độ --http-only."
+    NEEDED_PORTS="5500"
+    PORT_HINT="API nghe trực tiếp ở cổng 5500 trong chế độ --http-only."
   else
     NEEDED_PORTS="80 443"
     PORT_HINT="Caddy cần cả 80 (thử thách ACME) lẫn 443. Tắt nginx/apache trên host trước."
@@ -205,7 +205,7 @@ if [ "$HTTP_ONLY" = 1 ]; then
   DOMAIN="${DOMAIN:-$(env_get .env DOMAIN)}"
   CADDY_EMAIL="${CADDY_EMAIL:-$(env_get .env CADDY_EMAIL)}"
 
-  warn "API sẽ nghe ở http://${PUBLIC_IP:-<IP-VPS>}:3000 — không mã hoá."
+  warn "API sẽ nghe ở http://${PUBLIC_IP:-<IP-VPS>}:5500 — không mã hoá."
   warn "API_TOKEN đi qua Internet dưới dạng chữ đọc được. Ai chen được vào"
   warn "đường truyền đều lấy được token và gọi API thay bạn."
   warn "Dùng để tự kiểm tra. ĐỪNG đưa địa chỉ này cho đối tác thật."
@@ -298,7 +298,7 @@ API_TOKEN="apr_live_$(gen_hex 24)"
 write_new .env.api <<EOF || true
 # Sinh bởi bootstrap.sh $(date -u +%Y-%m-%dT%H:%M:%SZ) — KHÔNG commit file này.
 NODE_ENV=production
-PORT=3000
+PORT=5500
 
 # Token cho /v1/* — đây là thứ đưa cho bên gọi API.
 API_TOKEN=${API_TOKEN}
@@ -334,7 +334,7 @@ WORKER_ID=worker_vps_01
 WORKER_NAME=VPS Worker 01
 
 # Đi thẳng qua mạng nội bộ Docker, không vòng ra domain public.
-RELAY_API_URL=http://api:3000/internal/v1
+RELAY_API_URL=http://api:5500/internal/v1
 WORKER_TOKEN=${WORKER_TOKEN}
 
 JAVA_HOME=/opt/java/openjdk
@@ -429,13 +429,13 @@ wait_healthy api 180 || {
 step "Smoke test"
 
 # Qua chính container để không phụ thuộc curl/wget có trên host hay không.
-docker compose exec -T api wget -qO- http://127.0.0.1:3000/v1/health >/dev/null \
+docker compose exec -T api wget -qO- http://127.0.0.1:5500/v1/health >/dev/null \
   || die "/v1/health trong container không trả lời."
 ok "/v1/health trong container: OK"
 
 API_TOKEN="$(env_get .env.api API_TOKEN)"
 if docker compose exec -T api wget -qO- --header="Authorization: Bearer ${API_TOKEN}" \
-     http://127.0.0.1:3000/v1/system/status >/dev/null 2>&1; then
+     http://127.0.0.1:5500/v1/system/status >/dev/null 2>&1; then
   ok "/v1/system/status với API_TOKEN: OK (database nối được)"
 else
   warn "/v1/system/status lỗi — API sống nhưng có thể chưa đọc được database. Xem: docker compose logs api"
@@ -443,17 +443,17 @@ fi
 
 # Kiểm tra từ ngoài.
 if [ "$HTTP_ONLY" = 1 ]; then
-  BASE_URL="http://${PUBLIC_IP:-127.0.0.1}:3000"
+  BASE_URL="http://${PUBLIC_IP:-127.0.0.1}:5500"
   # Gọi qua IP public chứ không phải 127.0.0.1: mục đích là xác nhận gói tin đi
-  # được từ Internet vào, tức là security group / firewall đã mở cổng 3000.
+  # được từ Internet vào, tức là security group / firewall đã mở cổng 5500.
   if command -v curl >/dev/null 2>&1 && [ -n "$PUBLIC_IP" ]; then
-    if curl -fsS --max-time 8 "http://${PUBLIC_IP}:3000/v1/health" >/dev/null 2>&1; then
+    if curl -fsS --max-time 8 "http://${PUBLIC_IP}:5500/v1/health" >/dev/null 2>&1; then
       ok "${BASE_URL}/v1/health trả lời từ IP public — API đã ra được Internet"
     else
       warn "Không gọi được ${BASE_URL}/v1/health từ IP public."
       warn "Container thì sống (test bên trên đã qua), nên gần như chắc chắn là"
-      warn "FIREWALL chặn cổng 3000 — trên FPT Cloud là Security Group của VM."
-      warn "Kiểm tra thêm: ufw status  (nếu bật thì: ufw allow 3000/tcp)"
+      warn "FIREWALL chặn cổng 5500 — trên FPT Cloud là Security Group của VM."
+      warn "Kiểm tra thêm: ufw status  (nếu bật thì: ufw allow 5500/tcp)"
     fi
   else
     warn "Bỏ qua kiểm tra từ ngoài (thiếu curl hoặc không lấy được IP public)."
@@ -504,7 +504,7 @@ if [ "$HTTP_ONLY" = 1 ]; then
     docker compose up -d
 
   Caddy tự xin cert. Không phải build lại, không mất dữ liệu.
-  Nhớ đóng cổng 3000 trên firewall sau đó — API đã đi qua 443 rồi.
+  Nhớ đóng cổng 5500 trên firewall sau đó — API đã đi qua 443 rồi.
 "
 fi
 

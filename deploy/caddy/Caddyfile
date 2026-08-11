@@ -9,7 +9,7 @@
 	}
 
 	# /internal/v1/* là mặt phẳng của worker, xác thực bằng WORKER_TOKEN. Worker
-	# gọi thẳng http://api:3000 qua mạng Docker nên KHÔNG cần đi qua đây — chặn
+	# gọi thẳng http://api:5500 qua mạng Docker nên KHÔNG cần đi qua đây — chặn
 	# ở lớp ngoài để lộ WORKER_TOKEN không đủ để điều khiển hàng đợi job từ
 	# Internet. 404 chứ không phải 403: không xác nhận cho người ngoài biết
 	# đường dẫn này có tồn tại.
@@ -32,7 +32,7 @@
 		# Content-Type nên chỉ JSON được nén.
 		encode zstd gzip
 
-		reverse_proxy api:3000 {
+		reverse_proxy api:5500 {
 			# Artifact có thể lên hàng trăm MB. Mặc định Caddy stream, nhưng nói
 			# rõ để không ai vô tình bật buffer rồi ăn OOM khi hai client cùng tải.
 			flush_interval -1

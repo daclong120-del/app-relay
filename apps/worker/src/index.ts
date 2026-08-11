@@ -10,7 +10,7 @@ import { pullApkAndMetadata, validateZipArchive } from './pipeline/puller.js';
 
 const WORKER_ID = process.env.WORKER_ID || 'worker_vps_01';
 const WORKER_NAME = process.env.WORKER_NAME || 'VPS Worker 01';
-const RELAY_API_URL = process.env.RELAY_API_URL || 'http://localhost:3000/internal/v1';
+const RELAY_API_URL = process.env.RELAY_API_URL || 'http://localhost:5500/internal/v1';
 const WORKER_TOKEN = process.env.WORKER_TOKEN;
 if (!WORKER_TOKEN) {
   throw new Error('WORKER_TOKEN environment variable is required');

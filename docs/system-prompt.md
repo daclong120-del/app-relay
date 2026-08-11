@@ -89,7 +89,7 @@ Thăm dò code lạ thì dùng `query` / `context` thay vì grep mò.
 
 | Cạm bẫy | Chuyện gì xảy ra | Đúng phải là |
 |---|---|---|
-| Healthcheck dùng `localhost` | container phân giải `::1` trước, server chỉ bind IPv4 → `ECONNREFUSED` → **không bao giờ healthy** → worker treo vĩnh viễn ở `depends_on` | `http://127.0.0.1:3000/v1/health` |
+| Healthcheck dùng `localhost` | container phân giải `::1` trước, server chỉ bind IPv4 → `ECONNREFUSED` → **không bao giờ healthy** → worker treo vĩnh viễn ở `depends_on` | `http://127.0.0.1:5500/v1/health` |
 | `pnpm/action-setup` có `version` | đã có `packageManager` trong package.json → "Multiple versions of pnpm specified" | bỏ hẳn input `version` |
 | `corepack enable` trong Dockerfile | resolve `latest` = pnpm 11, cần `node:sqlite`, crash trên Node 20 | `npm install -g pnpm@9.15.9` |
 | API image dùng Node 20 | `supabase-js >= 2.112` không tìm thấy native WebSocket → crash-loop lúc boot | `node:22-alpine` |
@@ -104,7 +104,7 @@ Thăm dò code lạ thì dùng `query` / `context` thay vì grep mò.
 | `cancel` không ràng `.eq('status', …)` | worker claim đúng khe giữa SELECT và UPDATE → job báo `cancelled` nhưng emulator vẫn chạy và vẫn upload | ràng vào trạng thái vừa đọc, lệch thì `409` |
 | Quên `notify pgrst, 'reload schema'` | mọi ghi vào cột mới lỗi "Could not find the column … in the schema cache" | bắt buộc sau mỗi migration đổi cấu trúc |
 | `docker compose down -v` | **xoá volume `worker-avd`** → mất AVD và phiên đăng nhập Google Play | `down` (không `-v`) hoặc `stop` |
-| Chạy song song Docker Desktop + Docker trong WSL | distro WSL2 dùng chung network namespace → tranh cổng 3000/6080/54322 | dừng một bên trước |
+| Chạy song song Docker Desktop + Docker trong WSL | distro WSL2 dùng chung network namespace → tranh cổng 5500/6080/54322 | dừng một bên trước |
 | Để WSL tự chạy | Windows thu hồi distro khi rảnh → systemd poweroff → mọi container chết mà `RestartCount=0` | tiến trình keepalive `sleep infinity` |
 | `${VAR:?}` trong `command` của service có profile | compose nội suy command của **mọi** service kể cả service không thuộc profile đang bật → chặn luôn profile khác | truyền qua `environment` |
 

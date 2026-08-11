@@ -32,7 +32,7 @@ flowchart LR
     end
 
     subgraph S4[" "]
-        D1["ssh vào VPS"] --> D2["git fetch<br/>reset --hard sha"] --> D3["compose pull<br/>(COMPOSE_FILE từ .env)"] --> D4["compose --profile production up -d"] --> D5["docker image prune -f"]
+        D1["ssh vào VPS"] --> D2["git fetch<br/>reset --hard sha"] --> D3["compose pull<br/>(COMPOSE_FILE từ .env)"] --> D4["compose up -d<br/>--remove-orphans"] --> D5["docker image prune -f"]
     end
 
     T -.- S1
@@ -276,7 +276,7 @@ Thêm vào cuối job ④, ngay trước dòng `echo "✅"`:
 
 ```bash
 sleep 15
-curl -fsS http://127.0.0.1:3000/v1/health || { echo "health check FAILED"; exit 1; }
+curl -fsS http://127.0.0.1:5500/v1/health || { echo "health check FAILED"; exit 1; }
 ```
 
 Không có nó thì `deploy-to-vps` báo thành công kể cả khi container crash-loop ngay sau `up -d` — vì `docker compose up -d` trả về ngay khi container **khởi động**, không chờ nó **healthy**.

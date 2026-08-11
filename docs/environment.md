@@ -9,7 +9,7 @@ Bảng biến dưới đây sinh từ `grep process.env` trong code, **không** 
 | | Local dev | WSL server | VPS production |
 |---|---|---|---|
 | Docker | Docker Desktop | Docker Engine trong distro | Docker Engine |
-| API nghe ở | `127.0.0.1:3000` | `127.0.0.1:3000` | `127.0.0.1:3000` |
+| API nghe ở | `127.0.0.1:5500` | `127.0.0.1:5500` | `127.0.0.1:5500` |
 | Đường ra ngoài | không | cloudflared quick/named | Caddy `--profile production` |
 | TLS | không | Cloudflare lo | Caddy + Let's Encrypt |
 | Supabase | `compose.supabase.yaml` | tuỳ | Cloud |
@@ -17,7 +17,7 @@ Bảng biến dưới đây sinh từ `grep process.env` trong code, **không** 
 | noVNC | `localhost:6080` | `localhost:6080` | qua SSH tunnel |
 | Ai truy cập | mình | mình + đối tác qua tunnel | đối tác qua domain |
 
-**Không chạy song song Docker Desktop và Docker trong WSL.** Các distro WSL2 dùng chung network namespace nên sẽ tranh cổng 3000, 6080, 54322. Dừng một bên trước bằng `stop` (không phải `down -v`).
+**Không chạy song song Docker Desktop và Docker trong WSL.** Các distro WSL2 dùng chung network namespace nên sẽ tranh cổng 5500, 6080, 54322. Dừng một bên trước bằng `stop` (không phải `down -v`).
 
 ---
 
@@ -27,7 +27,7 @@ Bảng biến dưới đây sinh từ `grep process.env` trong code, **không** 
 
 | Biến | Ý nghĩa | Bắt buộc | Mặc định | Ví dụ |
 |---|---|---|---|---|
-| `PORT` | cổng HTTP | không | `3000` | `3000` |
+| `PORT` | cổng HTTP | không | `5500` | `5500` |
 | `NODE_ENV` | | không | | `production` |
 | `API_TOKEN` | token cho `/v1/*` | **có** — throw lúc boot | — | `apr_live_<48 hex>` |
 | `WORKER_TOKEN` | token cho `/internal/v1/*` | **có** — throw lúc boot | — | `worker_live_<48 hex>` |
@@ -58,7 +58,7 @@ Bảng biến dưới đây sinh từ `grep process.env` trong code, **không** 
 | `WORKER_TOKEN` | phải **giống hệt** giá trị trong `.env.api` | **có** — throw lúc boot | — |
 | `WORKER_ID` | id worker, hiện trong log và DB | không | `worker_vps_01` |
 | `WORKER_NAME` | tên hiển thị | không | `VPS Worker 01` |
-| `RELAY_API_URL` | endpoint internal | không | `http://localhost:3000/internal/v1` |
+| `RELAY_API_URL` | endpoint internal | không | `http://localhost:5500/internal/v1` |
 | `WORK_DIR` | thư mục làm việc tạm | không | `<cwd>/work/apks` |
 | `POLL_INTERVAL_MS` | chu kỳ claim | không | `5000` |
 | `HEARTBEAT_INTERVAL_MS` | chu kỳ heartbeat | không | `20000` |
@@ -78,7 +78,7 @@ Bảng biến dưới đây sinh từ `grep process.env` trong code, **không** 
 
 > AVD sizing đáng lưu ý: profile `pixel_6` mặc định chỉ ~2 GB userdata, đầy ngay khi Play Store cache và vài trăm MB APK đáp xuống. Đó là lý do `AVD_DATA_SIZE=12G`.
 
-Worker gọi API qua Docker network — `http://api:3000/internal/v1`. Không đi qua domain public, nên nhanh hơn và không ra Internet.
+Worker gọi API qua Docker network — `http://api:5500/internal/v1`. Không đi qua domain public, nên nhanh hơn và không ra Internet.
 
 ---
 

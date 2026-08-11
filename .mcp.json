@@ -12,7 +12,7 @@
         "--allowed-remote-paths",
         "/root/app-relay",
         "--whitelist",
-        "^(cd /root/app-relay/deploy && )?docker compose (ps|logs|top|config|version)( .*)?$,^docker (ps|images|stats --no-stream|version)( .*)?$,^(cd /root/app-relay/deploy && )?docker compose exec -T worker adb devices$,^(cd /root/app-relay/deploy && )?docker compose exec -T worker adb shell getprop sys\\.boot_completed$,^(cd /root/app-relay && )?git (status|log|diff|remote|rev-parse)( .*)?$,^cat /root/app-relay/deploy/\\.env\\.(api|worker)\\.example$,^grep -E '\\^?COMPOSE_(FILE|PROFILES)' /root/app-relay/deploy/\\.env$,^curl -fsS(I| -i)? http://127\\.0\\.0\\.1:3000/v1/health$,^df -h( .*)?$,^free -m$,^uptime$",
+        "^(cd /root/app-relay/deploy && )?docker compose (ps|logs|top|config|version)( .*)?$,^docker (ps|images|stats --no-stream|version)( .*)?$,^(cd /root/app-relay/deploy && )?docker compose exec -T worker adb devices$,^(cd /root/app-relay/deploy && )?docker compose exec -T worker adb shell getprop sys\\.boot_completed$,^(cd /root/app-relay && )?git (status|log|diff|remote|rev-parse)( .*)?$,^cat /root/app-relay/deploy/\\.env\\.(api|worker)\\.example$,^grep -E '\\^?COMPOSE_(FILE|PROFILES)' /root/app-relay/deploy/\\.env$,^curl -fsS(I| -i)? http://127\\.0\\.0\\.1:5500/v1/health$,^df -h( .*)?$,^free -m$,^uptime$",
         "--blacklist",
         ".*\\brm\\b.*,.*\\bdd\\b.*,.*mkfs.*,.*shutdown.*,.*reboot.*,.*service_role.*,.*\\.env\\.api\\b.*,.*\\.env\\.worker\\b.*,.*SECRET.*,.*TOKEN.*,.*PASSWORD.*,.*compose down.*,.*system prune.*,.*--volumes.*,.*-v /.*"
       ]

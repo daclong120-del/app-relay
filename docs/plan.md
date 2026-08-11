@@ -117,7 +117,7 @@ Cả hai chỉ nói về GitNexus, và ghi sai số liệu index: "374 symbols, 
 
   ```bash
   sleep 15
-  curl -fsS http://127.0.0.1:3000/v1/health || { echo "health check FAILED"; exit 1; }
+  curl -fsS http://127.0.0.1:5500/v1/health || { echo "health check FAILED"; exit 1; }
   ```
 
 - **DoD**: cố tình deploy bản hỏng → job đỏ.

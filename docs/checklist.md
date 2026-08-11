@@ -116,7 +116,7 @@ T=$(grep '^API_TOKEN=' .env.api | cut -d= -f2-)
 ADB=/opt/android-sdk/platform-tools/adb
 ```
 
-- [ ] `curl -s http://127.0.0.1:3000/v1/health` → `{"status":"ok",…}`
+- [ ] `curl -s http://127.0.0.1:5500/v1/health` → `{"status":"ok",…}`
 - [ ] `curl -s -H "Authorization: Bearer $T" .../v1/system/status` → `"database":"ok"`
 - [ ] `$C exec -T worker $ADB shell getprop sys.boot_completed` → `1`
 - [ ] `$C exec -T worker $ADB shell dumpsys account | grep 'Accounts:'` → `Accounts: 1`

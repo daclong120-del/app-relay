@@ -309,7 +309,7 @@ Gặp `404`/`410` với `apk*` mà `listing` vẫn chạy nghĩa là APK đã h�
 Chỉ container worker gọi, qua Docker network:
 
 ```env
-RELAY_API_URL=http://api:3000/internal/v1
+RELAY_API_URL=http://api:5500/internal/v1
 ```
 
 | Method | Path | Chức năng |
@@ -350,7 +350,7 @@ RELAY_API_URL=http://api:3000/internal/v1
 **Upload** — worker gửi thẳng từng file, giữ nguyên đường dẫn tương đối. Nén là việc của API và chỉ xảy ra khi client xin nhiều file:
 
 ```bash
-curl -X PUT "http://api:3000/internal/v1/jobs/job_001/files/playstore/screenshots/screenshot_01.png" \
+curl -X PUT "http://api:5500/internal/v1/jobs/job_001/files/playstore/screenshots/screenshot_01.png" \
   -H "Authorization: Bearer $WORKER_TOKEN" \
   -H "Content-Length: 277350" \
   -H "X-Content-SHA256: cbea6ecc…" \

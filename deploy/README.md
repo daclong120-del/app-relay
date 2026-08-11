@@ -32,7 +32,7 @@ duyệt Windows là được — **không cần SSH tunnel**.
 
 | Cổng | Dịch vụ | Truy cập từ Windows | Ghi chú |
 |------|---------|---------------------|---------|
-| **3000** | API (express) | `http://localhost:3000` | Bind `127.0.0.1:3000` |
+| **5500** | API (express) | `http://localhost:5500` | Bind `127.0.0.1:5500` |
 | **6080** | noVNC (websockify) | `http://localhost:6080/vnc.html` | Màn hình emulator |
 | 5900 | x11vnc | không publish | Chỉ trong container |
 | 8554 | gRPC emulator | không publish | Chỉ trong container |
@@ -119,14 +119,14 @@ Mọi endpoint `/v1/*` trừ `/v1/health` đều cần header
 
 ```bash
 # Health — endpoint duy nhất không cần auth
-curl -s http://localhost:3000/v1/health
+curl -s http://localhost:5500/v1/health
 
 # Tình trạng hệ thống: database, số job, số worker online
 curl -s -H "Authorization: Bearer $API_TOKEN" \
-  http://localhost:3000/v1/system/status
+  http://localhost:5500/v1/system/status
 
 # Tạo job — body dùng camelCase: playUrl (KHÔNG phải play_url)
-curl -s -X POST http://localhost:3000/v1/jobs \
+curl -s -X POST http://localhost:5500/v1/jobs \
   -H "Authorization: Bearer $API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"playUrl":"https://play.google.com/store/apps/details?id=com.google.android.calculator"}'
@@ -135,12 +135,12 @@ curl -s -X POST http://localhost:3000/v1/jobs \
 #   -H "Idempotency-Key: bat-ky-chuoi-nao"
 
 # Theo dõi job
-curl -s -H "Authorization: Bearer $API_TOKEN" http://localhost:3000/v1/jobs/<jobId>
-curl -s -H "Authorization: Bearer $API_TOKEN" http://localhost:3000/v1/jobs/<jobId>/events
+curl -s -H "Authorization: Bearer $API_TOKEN" http://localhost:5500/v1/jobs/<jobId>
+curl -s -H "Authorization: Bearer $API_TOKEN" http://localhost:5500/v1/jobs/<jobId>/events
 
 # Lấy link tải artifact (link có chữ ký, mặc định sống 600s)
 curl -s -X POST -H "Authorization: Bearer $API_TOKEN" \
-  http://localhost:3000/v1/jobs/<jobId>/artifact/download-url
+  http://localhost:5500/v1/jobs/<jobId>/artifact/download-url
 ```
 
 Endpoint public đầy đủ:
@@ -215,7 +215,7 @@ docker exec deploy-worker-1 bash -c 'grep -c "Got connection" /tmp/x11vnc-stderr
 Ra `0` nghĩa là trình duyệt chưa từng kết nối — dùng URL có `autoconnect=true`.
 Nếu đã có kết nối mà vẫn đen hình thì mới xét tới X/emulator.
 
-**API `unhealthy` mãi.** Healthcheck phải trỏ `http://127.0.0.1:3000`, không được
+**API `unhealthy` mãi.** Healthcheck phải trỏ `http://127.0.0.1:5500`, không được
 dùng `localhost`: trong container `localhost` resolve `::1` trước, còn server chỉ
 bind IPv4 `0.0.0.0`, nên probe nhận `ECONNREFUSED` vĩnh viễn và worker kẹt ở
 `depends_on`.

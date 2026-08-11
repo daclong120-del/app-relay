@@ -294,7 +294,7 @@ Chạy hết trước khi đưa `BASE_URL` cho bên ngoài.
 
 **Mạng**
 
-- [ ] `docker compose ps` cho thấy cổng 3000 và 6080 **chỉ** bind `127.0.0.1`
+- [ ] `docker compose ps` cho thấy cổng 5500 và 6080 **chỉ** bind `127.0.0.1`
 - [ ] noVNC không truy cập được từ ngoài (`curl http://<IP-public>:6080` phải fail)
 - [ ] Chỉ một trong ba: Caddy `production`, tunnel `quick`, tunnel `named`
 - [ ] Supabase self-host: cổng 54322 chỉ loopback

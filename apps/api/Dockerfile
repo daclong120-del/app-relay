@@ -36,7 +36,7 @@ FROM node:22-alpine AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=5500
 
 # Non-root. /data/artifacts is created and chowned HERE on purpose: Docker seeds
 # a new named volume with the ownership of the image path it mounts over, so the
@@ -64,6 +64,6 @@ COPY --from=builder --chown=app:app /app/apps/api/dist ./apps/api/dist
 
 USER app
 
-EXPOSE 3000
+EXPOSE 5500
 
 CMD ["node", "apps/api/dist/server.js"]

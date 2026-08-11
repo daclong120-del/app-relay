@@ -24,7 +24,7 @@ T=$(grep '^API_TOKEN=' .env.api | cut -d= -f2-)
 | Đừng | Vì sao | Thay bằng |
 |---|---|---|
 | `docker compose down -v` | `-v` xoá volume → mất AVD **và phiên đăng nhập Google Play** | `$C stop` hoặc `$C down` (không `-v`) |
-| Chạy song song Docker Desktop và Docker trong WSL | distro WSL2 dùng chung network namespace → tranh cổng 3000/6080/54322 | `stop` bên kia trước |
+| Chạy song song Docker Desktop và Docker trong WSL | distro WSL2 dùng chung network namespace → tranh cổng 5500/6080/54322 | `stop` bên kia trước |
 | Hardcode URL quick tunnel vào code | URL đổi mỗi lần restart | đọc từ config, lấy URL bằng lệnh ở §5 |
 
 ---
@@ -43,7 +43,7 @@ flowchart TD
     P -->|"không có"| UP["$C up -d"]
     P -->|"restarting"| LOG["$C logs --tail 50 api<br/>→ thường là thiếu biến env<br/>hoặc Supabase không nối được"]
     P -->|"unhealthy"| HC["healthcheck dùng 127.0.0.1<br/>chưa? — §4"]
-    P -->|"healthy"| H{"curl 127.0.0.1:3000/v1/health"}
+    P -->|"healthy"| H{"curl 127.0.0.1:5500/v1/health"}
 
     H -->|"hỏng"| LOG
     H -->|"ok"| EXT{"Gọi từ ngoài được?"}
@@ -112,7 +112,7 @@ Container nào kẹt thì ép tạo lại: `$C up -d --force-recreate`.
 
 | Triệu chứng | Nguyên nhân | Xử lý |
 |---|---|---|
-| Worker treo mãi ở `depends_on`, api không bao giờ `healthy` | healthcheck dùng `localhost` → container phân giải `::1` trước, server chỉ bind IPv4 → `ECONNREFUSED` | dùng `http://127.0.0.1:3000/v1/health` |
+| Worker treo mãi ở `depends_on`, api không bao giờ `healthy` | healthcheck dùng `localhost` → container phân giải `::1` trước, server chỉ bind IPv4 → `ECONNREFUSED` | dùng `http://127.0.0.1:5500/v1/health` |
 | API crash-loop lúc boot, log nhắc `WebSocket` | image chạy Node 20; `supabase-js >= 2.112` cần native WebSocket | image API phải là `node:22-alpine` |
 | API crash-loop, log `... environment variable is required` | thiếu một trong 4 biến bắt buộc | kiểm `.env.api`: `API_TOKEN`, `WORKER_TOKEN`, `SUPABASE_URL`, `DOWNLOAD_SIGNING_SECRET` |
 | `/system/status` trả `"database":"error"` | Supabase không nối được | kiểm `SUPABASE_URL`/`SUPABASE_SECRET_KEY`; self-host thì `$C logs db rest` |
@@ -125,7 +125,7 @@ Container nào kẹt thì ép tạo lại: `$C up -d --force-recreate`.
 | Tải file lỗi `403 INVALID_SIGNATURE` | link quá 10 phút, hoặc query bị sửa | gọi lại `download-url` |
 | `410` với `select=apk` nhưng `listing` vẫn chạy | APK đã hết `APK_TTL_HOURS` | chạy job mới, hoặc nâng TTL |
 | `page.html` tải về sha256 lệch | CDN viết lại `text/html` | đã vá: khai `application/octet-stream`. Vẫn lệch thì kiểm CDN có transform khác không |
-| Tranh cổng 3000/6080/54322 | hai stack Docker chạy song song trên WSL | `stop` một bên |
+| Tranh cổng 5500/6080/54322 | hai stack Docker chạy song song trên WSL | `stop` một bên |
 | `git clone` treo không lỗi | repo private qua HTTPS chờ mật khẩu | SSH deploy key, hoặc `GIT_TERMINAL_PROMPT=0` |
 | CI lỗi `Multiple versions of pnpm specified` | `pnpm/action-setup` có input `version` mà package.json đã có `packageManager` | bỏ input `version` |
 
@@ -263,7 +263,7 @@ df -h / ; free -h
 **Chỉ số cần theo dõi** — chưa có dashboard, kiểm bằng tay:
 
 ```bash
-curl -s -H "Authorization: Bearer $T" http://127.0.0.1:3000/v1/system/status | jq
+curl -s -H "Authorization: Bearer $T" http://127.0.0.1:5500/v1/system/status | jq
 ```
 
 | Chỉ số | Bình thường | Đáng lo |
@@ -278,7 +278,7 @@ curl -s -H "Authorization: Bearer $T" http://127.0.0.1:3000/v1/system/status | j
 Timeline của một job cụ thể:
 
 ```bash
-curl -s -H "Authorization: Bearer $T" http://127.0.0.1:3000/v1/jobs/$JOB/events | jq -r \
+curl -s -H "Authorization: Bearer $T" http://127.0.0.1:5500/v1/jobs/$JOB/events | jq -r \
   '.data[] | "\(.createdAt) [\(.level)] \(.eventType) — \(.message)"'
 ```
 
@@ -299,7 +299,7 @@ $C build           # nếu build tại chỗ
 
 $C up -d
 $C ps
-curl -s http://127.0.0.1:3000/v1/health
+curl -s http://127.0.0.1:5500/v1/health
 ```
 
 ### Rollback code
@@ -312,7 +312,7 @@ git log --oneline -10
 
 # Chạy lại bản đó
 IMAGE_TAG=<sha-cũ> DOCKERHUB_USERNAME=<user> $C up -d
-curl -s http://127.0.0.1:3000/v1/health
+curl -s http://127.0.0.1:5500/v1/health
 ```
 
 Muốn cố định thì ghi `IMAGE_TAG=<sha>` vào `deploy/.env`.
@@ -378,8 +378,8 @@ T=$(grep '^API_TOKEN=' .env.api | cut -d= -f2-)
 ADB=/opt/android-sdk/platform-tools/adb
 
 echo "── containers ──";  $C ps
-echo "── api ──";         curl -s http://127.0.0.1:3000/v1/health; echo
-echo "── system ──";      curl -s -H "Authorization: Bearer $T" http://127.0.0.1:3000/v1/system/status; echo
+echo "── api ──";         curl -s http://127.0.0.1:5500/v1/health; echo
+echo "── system ──";      curl -s -H "Authorization: Bearer $T" http://127.0.0.1:5500/v1/system/status; echo
 echo "── emulator ──";    $C exec -T worker $ADB shell getprop sys.boot_completed
 echo "── play account ──";$C exec -T worker $ADB shell dumpsys account | grep 'Accounts:'
 echo "── disk ──";        df -h / | tail -1

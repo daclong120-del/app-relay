@@ -175,7 +175,7 @@ Ba lựa chọn, **loại trừ nhau**:
 | VPS có IP tĩnh + domain | Caddy tự xin Let's Encrypt | `--profile production`, đặt `DOMAIN` và `CADDY_EMAIL` trong `.env` |
 | Máy cá nhân / WSL / sau NAT — thử nhanh | quick tunnel | `-f compose.tunnel.yaml --profile quick` |
 | Máy cá nhân / WSL — tích hợp thật | named tunnel | `-f compose.tunnel.yaml --profile named`, đặt `CLOUDFLARE_TUNNEL_TOKEN` |
-| Chỉ dùng nội bộ | không bật gì | API vẫn nghe ở `127.0.0.1:3000` |
+| Chỉ dùng nội bộ | không bật gì | API vẫn nghe ở `127.0.0.1:5500` |
 
 ---
 
@@ -252,12 +252,12 @@ Cả sáu phải xanh:
 
 ```bash
 # 1. API sống
-curl -s http://127.0.0.1:3000/v1/health
+curl -s http://127.0.0.1:5500/v1/health
 # {"status":"ok","service":"app-relay-api","version":"1.0.0"}
 
 # 2. Database nối được
 T=$(grep '^API_TOKEN=' deploy/.env.api | cut -d= -f2-)
-curl -s -H "Authorization: Bearer $T" http://127.0.0.1:3000/v1/system/status
+curl -s -H "Authorization: Bearer $T" http://127.0.0.1:5500/v1/system/status
 # "database":"ok"
 
 # 3. Emulator boot xong  (mất ~2 phút)
@@ -272,19 +272,19 @@ $C exec -T worker /opt/android-sdk/platform-tools/adb shell dumpsys account | gr
 # Accounts: 1     ← 0 nghĩa là mất phiên, quay lại bước 7
 
 # 6. Worker đã đăng ký
-curl -s -H "Authorization: Bearer $T" http://127.0.0.1:3000/v1/system/status | grep -o '"workers":{[^}]*}'
+curl -s -H "Authorization: Bearer $T" http://127.0.0.1:5500/v1/system/status | grep -o '"workers":{[^}]*}'
 ```
 
 ### Chạy thử một job thật
 
 ```bash
-JOB=$(curl -s -X POST http://127.0.0.1:3000/v1/jobs \
+JOB=$(curl -s -X POST http://127.0.0.1:5500/v1/jobs \
   -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
   -d '{"playUrl":"https://play.google.com/store/apps/details?id=com.facemoji.lite"}' \
   | jq -r .data.jobId)
 
 watch -n5 "curl -s -H 'Authorization: Bearer $T' \
-  http://127.0.0.1:3000/v1/jobs/$JOB | jq '.data | {status, progress, currentStep}'"
+  http://127.0.0.1:5500/v1/jobs/$JOB | jq '.data | {status, progress, currentStep}'"
 ```
 
 Tới `completed` là dựng xong.

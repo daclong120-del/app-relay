@@ -109,7 +109,7 @@ Ba ô vàng là việc phải làm tay. Mọi thứ còn lại tự động.
 | 4 | `curl -fsSL https://get.docker.com \| sh` rồi `apt-get install -y git` |
 | 5 | `git clone <repo> /root/app-relay` — repo private thì cần deploy key SSH hoặc token, xem [deploy-vps.md §2](deploy-vps.md) |
 | 6 | `cd /root/app-relay/deploy && ./bootstrap.sh --http-only` |
-| 7 | Mở cổng trên FPT Cloud Security Group (3000 nếu HTTP trần, hoặc 80+443 nếu dùng domain) |
+| 7 | Mở cổng trên FPT Cloud Security Group (5500 nếu HTTP trần, hoặc 80+443 nếu dùng domain) |
 | 8 | `ssh -N -L 6080:127.0.0.1:6080 root@<IP>` rồi mở noVNC, **đăng nhập Google Play** |
 | 9 | `./gui.sh off` — tắt màn hình emulator cho nhẹ CPU. Không mất phiên đăng nhập |
 
@@ -179,7 +179,7 @@ lên sẽ rỗng — không role, không bảng.
 Sau bước 8:
 
 ```
-API         http://<IP-VPS>:3000        (chế độ --http-only)
+API         http://<IP-VPS>:5500        (chế độ --http-only)
             https://api.tenmien.com     (chế độ có domain)
 API_TOKEN   apr_live_xxxxx...
 ```
@@ -187,14 +187,14 @@ API_TOKEN   apr_live_xxxxx...
 Gọi thử:
 
 ```bash
-curl http://<IP-VPS>:3000/v1/health
+curl http://<IP-VPS>:5500/v1/health
 
 curl -H "Authorization: Bearer $API_TOKEN" \
-  http://<IP-VPS>:3000/v1/system/status
+  http://<IP-VPS>:5500/v1/system/status
 
 curl -X POST -H "Authorization: Bearer $API_TOKEN" -H "Content-Type: application/json" \
   -d '{"playUrl":"https://play.google.com/store/apps/details?id=com.google.android.calculator"}' \
-  http://<IP-VPS>:3000/v1/jobs
+  http://<IP-VPS>:5500/v1/jobs
 ```
 
 Đặc tả 23 endpoint: [api-design.md](api-design.md). Kịch bản dùng thật:
@@ -212,7 +212,7 @@ Trước khi giao địa chỉ cho bên ngoài, làm [deploy-vps.md §8](deploy-
 2. Sửa ba dòng trong `deploy/.env`
 3. Bỏ `compose.http.yaml` khỏi `COMPOSE_FILE`
 4. `docker compose up -d` — Caddy tự xin cert Let's Encrypt
-5. Đóng cổng 3000 trên firewall
+5. Đóng cổng 5500 trên firewall
 6. **Đổi `API_TOKEN`** — token cũ đã đi qua HTTP trần thì coi như đã lộ
 
 Không build lại, không mất dữ liệu, không phải đăng nhập CH Play lại.
