@@ -149,14 +149,19 @@ jobs:
             if [ -d "deploy" ]; then cd deploy; fi
             export DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
 
-            # Không truyền -f. Chuỗi file compose nằm ở COMPOSE_FILE trong
-            # deploy/.env do bootstrap.sh sinh ra — nó chạy trên chính máy đích
-            # nên nó mới biết máy có /dev/kvm hay không, có chạy Supabase
-            # self-host hay không. -f tường minh ở đây sẽ ĐÈ COMPOSE_FILE và làm
-            # rơi mất compose.prod.yaml (xoay log, stop_grace_period của worker)
-            # lẫn compose.supabase.yaml — mà --remove-orphans thì xoá luôn các
-            # container thuộc overlay bị rơi.
+            # Không truyền -f, cũng không truyền --profile. Cả hai đọc từ
+            # COMPOSE_FILE / COMPOSE_PROFILES trong deploy/.env do bootstrap.sh
+            # sinh ra — nó chạy trên chính máy đích nên nó mới biết máy có
+            # /dev/kvm không, chạy Supabase self-host không, đang HTTPS hay
+            # --http-only.
+            #
+            # Cờ tường minh ở đây ĐÈ giá trị trong .env, và cả hai lần đè đều hỏng:
+            #   -f  → rơi compose.prod.yaml (xoay log, stop_grace_period của
+            #         worker) lẫn compose.supabase.yaml, mà --remove-orphans thì
+            #         xoá luôn container thuộc overlay bị rơi.
+            #   --profile production → dựng caddy dậy ngay cả ở chế độ
+            #         --http-only, nơi bootstrap cố ý để COMPOSE_PROFILES rỗng.
             docker compose pull
-            docker compose --profile production up -d --remove-orphans
+            docker compose up -d --remove-orphans
             docker image prune -f
             echo "✅ App Relay deployed successfully"

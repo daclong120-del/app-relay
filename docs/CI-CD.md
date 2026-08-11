@@ -112,7 +112,7 @@ git reset --hard $GITHUB_SHA
 if [ -d "deploy" ]; then cd deploy; fi
 
 docker compose pull
-docker compose --profile production up -d --remove-orphans
+docker compose up -d --remove-orphans
 docker image prune -f
 ```
 
@@ -136,7 +136,7 @@ Image do job ③ build, nhưng **file compose và Caddyfile không nằm trong i
 
 > Lệnh này **xoá mọi sửa tay trên file đã track** ở VPS. File `.env`, `.env.api`, `.env.worker` an toàn — chúng gitignore nên untracked, ngoài tầm với của `reset --hard`.
 
-#### Tại sao không còn `-f`
+#### Tại sao không còn `-f` lẫn `--profile`
 
 Chuỗi file compose lấy từ `COMPOSE_FILE` trong `deploy/.env`, do `bootstrap.sh` sinh:
 
@@ -154,7 +154,11 @@ Trước đây CI truyền `-f compose.yml` tường minh, mà **`-f` đè `COMP
 | `compose.prod.yaml` | mất xoay log (`max-size: 10m`) → vài tuần là đầy đĩa; mất `stop_grace_period: 120s` → emulator bị SIGKILL sau 10s, **hỏng AVD** |
 | `compose.supabase.yaml` | `--remove-orphans` **xoá** container `db`/`rest` do bootstrap dựng |
 
-Cả hai đã sửa.
+`--profile production` cũng bỏ, cùng lý do: [bootstrap.sh:237](../deploy/bootstrap.sh#L237) cố ý để `COMPOSE_PROFILES` **rỗng** ở chế độ `--http-only` để Caddy không khởi động. Cờ tường minh trong CI sẽ dựng Caddy dậy bất chấp và giành cổng 80/443.
+
+Cả ba đã sửa.
+
+> Quy tắc chung cho job ④: **không cờ nào của `docker compose` được hardcode trong CI.** Máy đích tự mô tả nó qua `deploy/.env`; CI chỉ đồng bộ git rồi gọi `pull` + `up -d`.
 
 ---
 

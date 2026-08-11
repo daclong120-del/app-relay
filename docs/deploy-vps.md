@@ -47,8 +47,10 @@ sao không có cert — thử thách ACME đi qua cổng 80.
 ## 2. Ba lệnh
 
 ```bash
-# 1. Docker (bỏ qua nếu đã có)
+# 1. Docker + git. get.docker.com KHÔNG cài git, và bản Ubuntu server tối giản
+#    thường không có sẵn — thiếu nó thì bước 2 báo "command not found".
 curl -fsSL https://get.docker.com | sh
+apt-get update && apt-get install -y git
 
 # 2. Lấy code
 sudo mkdir -p /opt/app-relay && sudo chown "$USER":"$USER" /opt/app-relay

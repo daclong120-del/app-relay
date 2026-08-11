@@ -122,7 +122,21 @@ command -v docker  >/dev/null 2>&1 || die "Chưa có docker. Cài: curl -fsSL ht
 command -v openssl >/dev/null 2>&1 || die "Chưa có openssl. Cài: apt-get install -y openssl"
 docker compose version >/dev/null 2>&1 || die "Thiếu Compose plugin (docker-compose-plugin)"
 docker info >/dev/null 2>&1 || die "Không nói chuyện được với Docker daemon. Chạy bằng sudo, hoặc thêm user vào group docker."
-ok "docker $(docker version --format '{{.Server.Version}}') + compose $(docker compose version --short)"
+
+COMPOSE_VER="$(docker compose version --short 2>/dev/null | sed 's/^v//')"
+ok "docker $(docker version --format '{{.Server.Version}}') + compose ${COMPOSE_VER}"
+
+# compose.http.yaml dùng thẻ YAML `!override`, có từ Compose v2.24.0. Bản cũ hơn
+# không hiểu thẻ này và chết bằng lỗi parse YAML khó lần ra nguyên nhân.
+if [ "$HTTP_ONLY" = 1 ]; then
+  CV_MAJOR="${COMPOSE_VER%%.*}"
+  CV_REST="${COMPOSE_VER#*.}"
+  CV_MINOR="${CV_REST%%.*}"
+  if [ "${CV_MAJOR:-0}" -lt 2 ] || { [ "${CV_MAJOR:-0}" -eq 2 ] && [ "${CV_MINOR:-0}" -lt 24 ]; }; then
+    die "Chế độ --http-only cần Docker Compose >= 2.24 (máy này ${COMPOSE_VER}).
+   Nâng cấp: curl -fsSL https://get.docker.com | sh"
+  fi
+fi
 
 ARCH="$(uname -m)"
 [ "$ARCH" = "x86_64" ] || die "Cần x86_64. Máy này là $ARCH — system image android-35 x86_64 không chạy được trên ARM."
