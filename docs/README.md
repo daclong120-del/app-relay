@@ -13,7 +13,7 @@ Backend thuần — **không có dashboard**, không có tài khoản, người 
 | **Đối tác gọi API** | [api-prototype.md](api-prototype.md) → [api-design.md](api-design.md) |
 | **Dev mới vào dự án** | [requirements.md](requirements.md) → [architecture.md](architecture.md) → [folder-struc.md](folder-struc.md) → [rule.md](rule.md) |
 | **Người dựng hệ thống** | [kick-start.md](kick-start.md) → [environment.md](environment.md) |
-| **Người deploy lên VPS** | [deploy-vps.md](deploy-vps.md) |
+| **Người deploy lên VPS** | [workflow.md](workflow.md) → [deploy-vps.md](deploy-vps.md) |
 | **Người trực khi có sự cố** | [runbook.md](runbook.md) |
 | **AI làm việc trên repo** | [system-prompt.md](system-prompt.md) → [rule.md](rule.md) → [checklist.md](checklist.md) |
 | **Người review code** | [checklist.md](checklist.md) → [test-case.md](test-case.md) |
@@ -70,6 +70,7 @@ Backend thuần — **không có dashboard**, không có tài khoản, người 
 | File | Nội dung |
 |---|---|
 | [test-case.md](test-case.md) | ~120 case có ID, phân loại tự động / thủ công, mục tiêu coverage theo vùng |
+| [workflow.md](workflow.md) | Toàn cảnh 3 giai đoạn: dựng → lên VPS lần đầu → CI tự động. **4 hiểu nhầm thường gặp**, bảng cái gì trong image / cái gì trong volume |
 | [deploy-vps.md](deploy-vps.md) | VPS trắng → API public bằng `deploy/bootstrap.sh`. Tự chứa: Postgres self-host, Caddy TLS, **một bước tay duy nhất** |
 | [CI-CD.md](CI-CD.md) | 4 job đang chạy, secret cần có, rollback, **4 khoảng trống đã biết** |
 | [security.md](security.md) | Ranh giới tin cậy, ma trận quyền, 7 chốt đã có, **8 nợ bảo mật ghi thẳng**, checklist trước khi mở public |
