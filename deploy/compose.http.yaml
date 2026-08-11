@@ -16,8 +16,15 @@ services:
     # compose giữ luôn "127.0.0.1:3000:3000" của bản base rồi thêm mapping mới
     # bên cạnh — hai mapping cùng giành cổng 3000 trên host và container chết
     # với "address already in use".
+    #
+    # HTTP_PORT đổi được trong deploy/.env. Mặc định 3000, nhưng nhiều VPS chặn
+    # sẵn mọi cổng lạ ở lớp Security Group của nhà cung cấp trong khi 80 thì mở
+    # từ đầu — đặt HTTP_PORT=80 là đường nhanh nhất để đối tác gọi được ngay.
+    #
+    # Chỉ dùng 80 khi Caddy KHÔNG chạy (COMPOSE_PROFILES không có `production`).
+    # Bật Caddy mà vẫn để HTTP_PORT=80 thì hai bên giành cổng và một bên chết.
     ports: !override
-      - "0.0.0.0:3000:3000"
+      - "0.0.0.0:${HTTP_PORT:-3000}:3000"
 
   # noVNC KHÔNG được đụng tới: vẫn chỉ 127.0.0.1:6080. Nó là màn hình điều
   # khiển emulator, không có xác thực nào cả — mở ra Internet là giao cả máy.
