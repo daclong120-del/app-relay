@@ -111,6 +111,11 @@ Ba ô vàng là việc phải làm tay. Mọi thứ còn lại tự động.
 | 6 | `cd /root/app-relay/deploy && ./bootstrap.sh --http-only` |
 | 7 | Mở cổng trên FPT Cloud Security Group (3000 nếu HTTP trần, hoặc 80+443 nếu dùng domain) |
 | 8 | `ssh -N -L 6080:127.0.0.1:6080 root@<IP>` rồi mở noVNC, **đăng nhập Google Play** |
+| 9 | `./gui.sh off` — tắt màn hình emulator cho nhẹ CPU. Không mất phiên đăng nhập |
+
+> Cần đăng nhập lại Google Play về sau: `./gui.sh on` → đăng nhập → `./gui.sh off`.
+> Ba lệnh, **không chạy lại `bootstrap.sh`**. Hai script tách riêng có chủ đích —
+> `bootstrap.sh` là dựng máy (một lần), `gui.sh` là vận hành (nhiều lần).
 
 ### Giai đoạn 3 — từ đó về sau
 

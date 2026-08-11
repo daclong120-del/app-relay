@@ -346,9 +346,9 @@ EMULATOR_PATH=/opt/android-sdk/emulator/emulator
 ANDROID_AVD=chpay
 WORK_DIR=/app/apps/worker/work
 
-# on = có noVNC để đăng nhập Google Play. Đăng nhập xong đổi thành off cho đỡ
-# CPU: emulator chạy -no-window và không bật x11vnc (thứ quét framebuffer liên
-# tục kể cả khi không ai xem). Phiên đăng nhập nằm trong volume, không mất.
+# Giá trị ban đầu là `on` để đăng nhập Google Play lần đầu được.
+# ĐỪNG sửa tay dòng này về sau — dùng ./gui.sh on|off, nó dựng lại container luôn.
+# bootstrap.sh chỉ đặt giá trị khởi điểm, nó KHÔNG phải chỗ bật tắt GUI.
 WORKER_GUI=on
 
 EMULATOR_ACCEL=$([ "$USE_KVM" = 1 ] && echo on || echo off)
@@ -537,6 +537,11 @@ $(printf '\033[1;33m═══ Còn MỘT bước tay: đăng nhập Google Play 
 
   Đăng nhập Google trong app Play Store. Xong thì đóng trình duyệt, ngắt SSH.
   Phiên đăng nhập nằm trong volume worker-avd — chỉ làm MỘT LẦN, restart vẫn còn.
+
+  Xong rồi TẮT GUI cho nhẹ CPU (không mất phiên đăng nhập):
+    ./gui.sh off
+
+  Cần đăng nhập lại sau này thì: ./gui.sh on → đăng nhập → ./gui.sh off
 
   Theo dõi emulator boot:
     docker compose exec worker bash -c 'tail -f /tmp/worker-node-stdout*.log'

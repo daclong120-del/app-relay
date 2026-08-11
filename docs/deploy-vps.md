@@ -402,13 +402,24 @@ Cửa sổ emulator được vẽ bằng `swiftshader` — render mềm trên CP
 `x11vnc` quét framebuffer liên tục **kể cả khi không có trình duyệt nào kết
 nối**, đây là phần tốn CPU thầm lặng nhất trên một VPS yếu.
 
-Đăng nhập Google Play xong thì không cần GUI nữa. Tắt đi:
+Đăng nhập Google Play xong thì không cần GUI nữa. Có script riêng cho việc này,
+**không phải sửa file tay**:
 
 ```bash
 cd /root/app-relay/deploy
-sed -i 's/^WORKER_GUI=.*/WORKER_GUI=off/' .env.worker
-docker compose up -d worker
+
+./gui.sh          # đang bật hay tắt?
+./gui.sh off      # tắt cho nhẹ CPU
+./gui.sh on       # bật lại khi cần đăng nhập hoặc nhìn tận mắt
 ```
+
+Script tự sửa `.env.worker`, dựng lại container worker, rồi in ra việc cần làm
+tiếp — bật thì in sẵn lệnh SSH tunnel kèm IP thật, tắt thì nhắc cách kiểm tra
+worker còn sống.
+
+Nó **tách riêng khỏi `bootstrap.sh`** có chủ đích. `bootstrap.sh` là việc dựng
+máy, chạy một lần; bật tắt GUI là việc vận hành, chạy nhiều lần. Gộp vào nhau
+thì mỗi lần muốn đăng nhập lại Play Store phải chạy lại cả quy trình dựng.
 
 `WORKER_GUI=off` làm hai việc: emulator chạy với `-no-window`, và
 `openbox`/`x11vnc`/`novnc` không khởi động.
@@ -416,18 +427,20 @@ docker compose up -d worker
 Android bên trong **vẫn chạy đủ** — worker vẫn nhận job, vẫn mở Play Store, vẫn
 kéo APK. Chỉ là không xem được màn hình qua noVNC.
 
-**Phiên đăng nhập không mất.** Nó nằm trong volume `worker-avd`, không liên quan
-tới GUI.
+### Đăng nhập lại Google Play về sau
 
-### Bật lại khi cần nhìn
+Phiên đăng nhập có thể hết hạn, hoặc bạn muốn đổi tài khoản. Quy trình:
 
 ```bash
-sed -i 's/^WORKER_GUI=.*/WORKER_GUI=on/' .env.worker
-docker compose up -d worker
+./gui.sh on
+# → SSH tunnel + noVNC như §4, đăng nhập
+./gui.sh off
 ```
 
-Rồi SSH tunnel + noVNC như §4. Đổi hai chiều đều mất khoảng 30 giây và không
-phải build lại image.
+Ba lệnh, không đụng tới `bootstrap.sh`, không build lại, không mất dữ liệu gì.
+
+**Tắt GUI không làm mất phiên đăng nhập.** Phiên nằm trong volume `worker-avd`,
+không liên quan gì tới màn hình. Chỉ `docker compose down -v` mới xoá nó.
 
 ### Lần đầu cần build lại một lượt
 
