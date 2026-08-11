@@ -1,7 +1,12 @@
 # Vận hành AppRelay trên WSL2 Ubuntu-24.04
 
-Tài liệu thao tác hằng ngày. Phần kiến trúc và lý do thiết kế nằm ở
-[`../new_setup/vps_deploy.md`](../new_setup/vps_deploy.md).
+Tài liệu thao tác hằng ngày **cho máy WSL này**. Phần kiến trúc và lý do thiết
+kế nằm ở [`../new_setup/vps_deploy.md`](../new_setup/vps_deploy.md).
+
+> **Deploy lên VPS thì đọc [`../docs/deploy-vps.md`](../docs/deploy-vps.md)**, không
+> phải file này. Đường đó tự chứa: một lệnh `./bootstrap.sh` lo từ sinh secret,
+> Postgres self-host, tới Caddy TLS. Máy WSL ở đây dựng tay và dùng cloudflared,
+> khác hẳn.
 
 Thư mục làm việc cho mọi lệnh dưới đây:
 

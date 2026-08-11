@@ -3,5 +3,39 @@
 }
 
 {$DOMAIN:localhost} {
-	reverse_proxy api:3000
+	log {
+		output stdout
+		format console
+	}
+
+	# /internal/v1/* là mặt phẳng của worker, xác thực bằng WORKER_TOKEN. Worker
+	# gọi thẳng http://api:3000 qua mạng Docker nên KHÔNG cần đi qua đây — chặn
+	# ở lớp ngoài để lộ WORKER_TOKEN không đủ để điều khiển hàng đợi job từ
+	# Internet. 404 chứ không phải 403: không xác nhận cho người ngoài biết
+	# đường dẫn này có tồn tại.
+	#
+	# Không kèm body JSON: Caddy quét `{...}` trong chuỗi để thay placeholder,
+	# nên một body JSON ở đây là chỗ dễ gãy mà không ai để ý.
+	handle /internal/* {
+		respond 404
+	}
+
+	handle {
+		header {
+			Strict-Transport-Security "max-age=31536000; includeSubDomains"
+			X-Content-Type-Options nosniff
+			Referrer-Policy no-referrer
+			-Server
+		}
+
+		# Artifact tải về là ZIP đã nén sẵn; `encode` bỏ qua chúng theo
+		# Content-Type nên chỉ JSON được nén.
+		encode zstd gzip
+
+		reverse_proxy api:3000 {
+			# Artifact có thể lên hàng trăm MB. Mặc định Caddy stream, nhưng nói
+			# rõ để không ai vô tình bật buffer rồi ăn OOM khi hai client cùng tải.
+			flush_interval -1
+		}
+	}
 }

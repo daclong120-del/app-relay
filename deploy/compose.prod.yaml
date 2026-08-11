@@ -1,0 +1,53 @@
+# Production overlay — bật cùng compose.yml + compose.kvm.yaml + compose.supabase.yaml.
+#
+# Không định nghĩa service mới. Chỉ thêm những thứ một máy chạy dài ngày cần mà
+# bản base cố ý không có:
+#
+#   1. Xoay log. Emulator in liên tục; json-file mặc định KHÔNG giới hạn kích
+#      thước, nên sau vài tuần /var/lib/docker nuốt hết đĩa và container chết vì
+#      ENOSPC chứ không phải vì lỗi code.
+#   2. Healthcheck cho caddy — base chỉ có healthcheck cho api, nên caddy hỏng
+#      (cert fail, config sai) vẫn hiện "running" và không ai biết.
+#   3. stop_grace_period cho worker: emulator cần thời gian ghi userdata xuống
+#      đĩa, SIGKILL sau 10 giây mặc định làm hỏng AVD.
+#
+# Bootstrap ghi thẳng file này vào COMPOSE_FILE trong deploy/.env, nên sau khi
+# dựng xong chỉ cần `docker compose up -d`, không phải nhớ chuỗi -f.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  caddy:
+    logging: *default-logging
+    healthcheck:
+      # Caddy image không có curl/wget. `caddy validate` đọc lại chính file
+      # config đang mount, nên cert hỏng thì không bắt được — nhưng config sai
+      # sau khi reload thì bắt được, và đó là lỗi hay gặp hơn.
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  api:
+    logging: *default-logging
+    environment:
+      NODE_ENV: production
+
+  worker:
+    logging: *default-logging
+    # Emulator ghi userdata (12G) lúc tắt. Mặc định 10s là quá ngắn, AVD hỏng.
+    stop_grace_period: 120s
+
+  db:
+    logging: *default-logging
+
+  rest:
+    logging: *default-logging
+
+  supabase:
+    logging: *default-logging

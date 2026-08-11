@@ -32,7 +32,7 @@ flowchart LR
     end
 
     subgraph S4[" "]
-        D1["ssh vào VPS"] --> D2["dò /dev/kvm<br/>→ chọn overlay"] --> D3["compose pull"] --> D4["compose --profile production up -d"] --> D5["docker image prune -f"]
+        D1["ssh vào VPS"] --> D2["git fetch<br/>reset --hard sha"] --> D3["compose pull<br/>(COMPOSE_FILE từ .env)"] --> D4["compose --profile production up -d"] --> D5["docker image prune -f"]
     end
 
     T -.- S1
@@ -101,22 +101,60 @@ Image worker ~4 GB (JDK + Android SDK + system image `android-35;google_apis_pla
 `needs: build-and-push`, chỉ khi push. SSH vào VPS rồi chạy:
 
 ```bash
+set -e
+
 cd $VPS_DEPLOY_PATH          # mặc định /root/app-relay
+test -d .git || exit 1       # thư mục deploy PHẢI là git clone
+git fetch --prune origin
+git checkout -f $GITHUB_REF_NAME
+git reset --hard $GITHUB_SHA
+
 if [ -d "deploy" ]; then cd deploy; fi
 
-COMPOSE_FILES="-f compose.yml"
-if [ -e /dev/kvm ]; then
-  COMPOSE_FILES="-f compose.yml -f compose.kvm.yaml"
-fi
-
-docker compose $COMPOSE_FILES pull
-docker compose $COMPOSE_FILES --profile production up -d --remove-orphans
+docker compose pull
+docker compose --profile production up -d --remove-orphans
 docker image prune -f
 ```
 
 Secret: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_SSH_PORT` (mặc định 22), `VPS_DEPLOY_PATH`.
 
-Tự dò `/dev/kvm` để chọn overlay — máy không có KVM vẫn deploy được, chỉ là emulator chạy software emulation.
+**Ba điều kiện tiên quyết trên VPS** — thiếu cái nào job này cũng vô nghĩa hoặc fail:
+
+1. `$VPS_DEPLOY_PATH` là một **git clone** của repo (private repo → cần deploy key trong `~/.ssh` của `VPS_USER`). Job fail sớm với thông báo rõ nếu không phải.
+2. `deploy/.env` đã được [bootstrap.sh](../deploy/bootstrap.sh) sinh ra, chứa `COMPOSE_FILE` và `COMPOSE_PROFILES`.
+3. `deploy/.env.api`, `deploy/.env.worker` tồn tại — pipeline không tạo chúng.
+
+#### Tại sao `set -e`
+
+`appleboy/ssh-action` mặc định `script_stop: false`, tức là **không dừng khi một lệnh fail**. Không có `set -e` thì `docker compose pull` hỏng vẫn chạy tiếp tới `echo "✅ deployed successfully"` và job báo xanh.
+
+#### Tại sao `reset --hard` chứ không phải `pull`
+
+Image do job ③ build, nhưng **file compose và Caddyfile không nằm trong image** — chúng đọc từ đĩa VPS lúc `up`. Không đồng bộ git ở bước này thì mọi thay đổi trong `deploy/` không bao giờ tới máy đích.
+
+`reset --hard` thay vì `pull` vì hai lý do: git là nguồn sự thật cho file compose, và commit trên VPS phải khớp **đúng** commit đã build ra image.
+
+> Lệnh này **xoá mọi sửa tay trên file đã track** ở VPS. File `.env`, `.env.api`, `.env.worker` an toàn — chúng gitignore nên untracked, ngoài tầm với của `reset --hard`.
+
+#### Tại sao không còn `-f`
+
+Chuỗi file compose lấy từ `COMPOSE_FILE` trong `deploy/.env`, do `bootstrap.sh` sinh:
+
+```text
+compose.yml:compose.supabase.yaml:compose.prod.yaml
+compose.yml:compose.kvm.yaml:compose.supabase.yaml:compose.prod.yaml   # máy có /dev/kvm
+```
+
+Việc dò `/dev/kvm` thuộc về `bootstrap.sh` — nó chạy trên chính máy đích nên nó mới biết máy có KVM, có chạy Supabase self-host hay không. CI không cần đoán.
+
+Trước đây CI truyền `-f compose.yml` tường minh, mà **`-f` đè `COMPOSE_FILE`**. Hệ quả là mỗi lần deploy tự động lại âm thầm làm rơi hai overlay:
+
+| Rơi mất | Hậu quả |
+|---|---|
+| `compose.prod.yaml` | mất xoay log (`max-size: 10m`) → vài tuần là đầy đĩa; mất `stop_grace_period: 120s` → emulator bị SIGKILL sau 10s, **hỏng AVD** |
+| `compose.supabase.yaml` | `--remove-orphans` **xoá** container `db`/`rest` do bootstrap dựng |
+
+Cả hai đã sửa.
 
 ---
 
@@ -147,11 +185,14 @@ Hệ quả: **thêm biến env mới thì phải sửa tay trên VPS**, pipeline
 
 ```bash
 cd /opt/app-relay/deploy
-IMAGE_TAG=<sha-cũ> DOCKERHUB_USERNAME=<user> \
-  docker compose -f compose.yml -f compose.kvm.yaml --profile production up -d
+IMAGE_TAG=<sha-cũ> DOCKERHUB_USERNAME=<user> docker compose --profile production up -d
 ```
 
+Không cần `-f` — `COMPOSE_FILE` trong `deploy/.env` lo phần đó.
+
 Cố định thì ghi `IMAGE_TAG=<sha>` vào `deploy/.env`. Bỏ dòng đó ra là quay về `latest`.
+
+> `deploy/.env` untracked nên `git reset --hard` của job ④ **không xoá** dòng ghim này. Ghim xong mà quên gỡ thì mọi push sau đó vẫn build image mới, deploy vẫn báo xanh, còn VPS thì đứng yên ở SHA cũ.
 
 ### Schema
 
@@ -203,7 +244,7 @@ Cách sửa đúng: nâng `setup-node` lên 22, **không** hạ Dockerfile xuố
 | Chưa có | Ảnh hưởng | Ưu tiên |
 |---|---|---|
 | `pnpm audit` / Dependabot | CVE không ai biết | cao |
-| Smoke test sau deploy | deploy hỏng vẫn báo "✅ deployed successfully" | cao |
+| Smoke test sau deploy | container crash-loop ngay sau `up -d` vẫn báo "✅ deployed successfully" | cao |
 | Đo coverage | không biết phần nào chưa test | trung bình |
 | Lint (ESLint/Prettier) | chỉ có `tsc --noEmit` | trung bình |
 | Cache Docker layer | job ③ build lại SDK mỗi lần | trung bình |

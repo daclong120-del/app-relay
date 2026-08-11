@@ -123,14 +123,40 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_SSH_PORT || 22 }}
           script: |
+            # appleboy/ssh-action KHÔNG dừng khi một lệnh fail (script_stop mặc
+            # định false). Không có set -e thì `compose pull` hỏng vẫn chạy tiếp
+            # tới dòng echo "✅" và job báo xanh.
+            set -e
+
             cd ${{ secrets.VPS_DEPLOY_PATH || '/root/app-relay' }}
+
+            # Image do job ③ build, nhưng file compose / Caddyfile thì KHÔNG nằm
+            # trong image — chúng đọc từ đĩa VPS. Không đồng bộ git ở đây thì mọi
+            # thay đổi trong deploy/ không bao giờ tới máy đích.
+            test -d .git || {
+              echo "❌ $PWD không phải git clone. Deploy cần clone repo về đây trước:"
+              echo "   git clone <repo-url> ${{ secrets.VPS_DEPLOY_PATH || '/root/app-relay' }}"
+              exit 1
+            }
+            git fetch --prune origin
+            git checkout -f ${{ github.ref_name }}
+            # reset --hard, không phải pull: git là nguồn sự thật cho file compose,
+            # và commit này phải khớp đúng commit đã build ra image. Lệnh này XOÁ
+            # mọi sửa tay trên file đã track ở VPS. File .env* không bị đụng vì
+            # chúng gitignore (untracked không nằm trong tầm reset --hard).
+            git reset --hard ${{ github.sha }}
+
             if [ -d "deploy" ]; then cd deploy; fi
             export DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
-            COMPOSE_FILES="-f compose.yml"
-            if [ -e /dev/kvm ]; then
-              COMPOSE_FILES="-f compose.yml -f compose.kvm.yaml"
-            fi
-            docker compose $COMPOSE_FILES pull
-            docker compose $COMPOSE_FILES --profile production up -d --remove-orphans
+
+            # Không truyền -f. Chuỗi file compose nằm ở COMPOSE_FILE trong
+            # deploy/.env do bootstrap.sh sinh ra — nó chạy trên chính máy đích
+            # nên nó mới biết máy có /dev/kvm hay không, có chạy Supabase
+            # self-host hay không. -f tường minh ở đây sẽ ĐÈ COMPOSE_FILE và làm
+            # rơi mất compose.prod.yaml (xoay log, stop_grace_period của worker)
+            # lẫn compose.supabase.yaml — mà --remove-orphans thì xoá luôn các
+            # container thuộc overlay bị rơi.
+            docker compose pull
+            docker compose --profile production up -d --remove-orphans
             docker image prune -f
             echo "✅ App Relay deployed successfully"

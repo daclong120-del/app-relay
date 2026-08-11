@@ -6,6 +6,29 @@ Format: `Added` / `Changed` / `Fixed` / `Removed`.
 
 ---
 
+## 2026-08-11
+
+### Added
+
+- **`deploy/bootstrap.sh` — dựng cả stack trên VPS trắng bằng một lệnh.** Kiểm tra máy (x86_64, `/dev/kvm`, RAM, đĩa của Docker, cổng 80/443), đối chiếu A record với IP public, sinh cả ba file `.env*` với secret `openssl rand`, build, up, chờ healthy, smoke test trong container lẫn qua HTTPS. Idempotent: chạy lại giữ nguyên secret và volume.
+- Bootstrap tự ký **JWT HS256 `role=service_role`** làm `SUPABASE_SECRET_KEY`. Self-host không có khoá `sb_secret_...`, nhưng PostgREST xác thực JWT bằng `PGRST_JWT_SECRET` rồi `set role` đúng như Supabase Cloud — nên `apps/api/src/database/supabase.ts` không phải đổi dòng nào.
+- `deploy/compose.prod.yaml` — overlay cho máy chạy dài ngày: xoay log `json-file` (10m × 5) cho cả 6 service, healthcheck cho `caddy`, `stop_grace_period: 120s` cho worker để emulator kịp ghi userdata 12 G xuống đĩa thay vì ăn SIGKILL sau 10 giây.
+- `docs/deploy-vps.md` — đường deploy tự chứa, tách khỏi [kick-start.md](kick-start.md) (dựng để dev) và [CI-CD.md](CI-CD.md) (pull image có sẵn).
+
+### Changed
+
+- **`deploy/.env` giờ mang `COMPOSE_FILE` và `COMPOSE_PROFILES`.** Compose đọc hai biến này từ `.env` của thư mục project, nên sau bootstrap mọi lệnh vận hành chỉ còn `docker compose ps` / `logs` / `up -d` — hết chuỗi `-f compose.yml -f compose.kvm.yaml -f …` gõ sai một cái là chạy nhầm cấu hình.
+- **`apps/api/Dockerfile` tách hẳn stage runner.** Trước đây runner `COPY --from=builder /app ./` — bê nguyên devDependencies, `src/`, tsconfig và cả pnpm vào image production. Giờ builder prune bằng `pnpm install --prod` rồi runner chỉ chép `node_modules` + `dist` + hai `package.json`. Chạy bằng user `app` (uid 10001) thay vì root.
+- **BREAKING với volume cũ — `api` chạy non-root.** Docker chỉ gieo quyền sở hữu vào volume **mới**; volume `api-artifacts` đã tồn tại từ thời chạy root vẫn thuộc root và ghi artifact sẽ `EACCES`. Vá: `docker compose run --rm --user root api chown -R 10001:10001 /data/artifacts`. Deploy sạch không dính.
+- `deploy/compose.yml` bỏ `.env` khỏi `env_file` của `api` và `worker`. Compose vốn đã tự đọc `.env` để nội suy; để nó trong `env_file` chỉ có tác dụng bơm `POSTGRES_PASSWORD` và `JWT_SECRET` vào bên trong container — riêng worker còn chạy APK của bên thứ ba.
+- `deploy/caddy/Caddyfile` chặn `/internal/*` ở lớp ngoài (404). Worker gọi `http://api:3000` qua mạng Docker nên không cần đường công khai; lộ `WORKER_TOKEN` giờ không đủ để điều khiển hàng đợi job từ Internet. Thêm HSTS, `X-Content-Type-Options`, `Referrer-Policy`, bỏ header `Server`, và `flush_interval -1` để artifact hàng trăm MB stream chứ không buffer.
+
+### Fixed
+
+- `.env.api.example` bổ sung 5 biến còn thiếu (`APK_TTL_HOURS`, `ARTIFACT_MIN_FREE_BYTES`, `ORPHAN_DIR_MIN_AGE_MINUTES`, `DELETE_AFTER_DOWNLOAD_GRACE_MINUTES`, `STUCK_JOB_GRACE_MINUTES`) và sửa `ARTIFACT_TTL_HOURS` từ `48` về `720` cho khớp code. Lệch này ghi trong [environment.md §6](environment.md) từ 2026-08-10.
+
+---
+
 ## 2026-08-10
 
 ### Removed

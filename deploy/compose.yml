@@ -27,10 +27,11 @@ services:
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     init: true
+    # Chỉ .env.api. `.env` KHÔNG nằm ở đây có chủ đích: compose đã tự đọc nó để
+    # nội suy, thêm vào env_file chỉ có tác dụng bơm POSTGRES_PASSWORD và
+    # JWT_SECRET vào bên trong container — hai thứ tiến trình API không dùng.
     env_file:
       - path: .env.api
-        required: false
-      - path: .env
         required: false
     ports:
       - "127.0.0.1:3000:3000"
@@ -55,10 +56,10 @@ services:
       dockerfile: apps/worker/Dockerfile
     restart: unless-stopped
     init: true
+    # Xem ghi chú ở service api: cố ý không nạp `.env`. Worker chạy APK của bên
+    # thứ ba trong emulator, càng ít secret trong môi trường của nó càng tốt.
     env_file:
       - path: .env.worker
-        required: false
-      - path: .env
         required: false
     depends_on:
       api:

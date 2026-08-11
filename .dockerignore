@@ -8,11 +8,31 @@ packages/*/dist
 *.log
 tmp
 workspace
+
+# Secret. `.env*` KHÔNG đủ: pattern không có ** chỉ khớp mức gốc, nên
+# deploy/.env.api — file chứa API_TOKEN và SUPABASE_SECRET_KEY thật — vẫn được
+# gửi sang Docker daemon trong build context. Ở đây chỉ cần một dòng `COPY . .`
+# lọt vào Dockerfile là secret nằm trong layer, và layer thì đẩy lên registry.
 .env*
+**/.env
+**/.env.*
+!**/.env.*.example
+
+# Không thứ nào dưới đây tham gia build. deploy/ chỉ được compose đọc từ host;
+# supabase/migrations được bind-mount lúc chạy, không COPY vào image.
+deploy
+supabase
+docs
+new_setup
+tests
+scripts
+
 .antigravityignore
 .gitnexus
 .claude
+.agents
 .github
-new_setup
+CLAUDE.md
+AGENTS.md
 artifacts
 work

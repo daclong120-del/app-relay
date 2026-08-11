@@ -88,6 +88,8 @@ Worker gọi API qua Docker network — `http://api:3000/internal/v1`. Không đ
 
 | Biến | Dùng khi | Lấy bằng |
 |---|---|---|
+| `COMPOSE_FILE` | VPS — bootstrap ghi vào | danh sách overlay ngăn cách bằng `:`, compose tự đọc thay cho cờ `-f` |
+| `COMPOSE_PROFILES` | VPS — bootstrap ghi vào | `production` (bật Caddy) |
 | `KVM_GID` | luôn, nếu bật `compose.kvm.yaml` | `getent group kvm \| cut -d: -f3` (mặc định `108`) |
 | `DOCKERHUB_USERNAME` | pull image từ registry | mặc định `apprelay` |
 | `IMAGE_TAG` | pin version image | mặc định `latest`; rollback thì đặt bằng `github.sha` |
@@ -108,7 +110,13 @@ Worker gọi API qua Docker network — `http://api:3000/internal/v1`. Không đ
 |---|---|---|
 | `compose.kvm.yaml` | `/dev/kvm`, `group_add: KVM_GID`, `EMULATOR_ACCEL=on` | máy có `/dev/kvm` |
 | `compose.supabase.yaml` | `db` (postgres:16) + `rest` (postgrest) + gateway | không dùng Supabase Cloud |
+| `compose.prod.yaml` | xoay log json-file, healthcheck cho caddy, `stop_grace_period` 120s cho worker | chạy dài ngày trên VPS |
 | `compose.tunnel.yaml` | `cloudflared-quick` / `cloudflared-named` | không có IP public |
+
+> Trên VPS thì **không phải gõ chuỗi `-f` này**. `deploy/bootstrap.sh` ghi
+> `COMPOSE_FILE` và `COMPOSE_PROFILES` vào `deploy/.env`, compose tự đọc — sau
+> đó `docker compose ps` trần đã đúng overlay và đúng profile. Xem
+> [deploy-vps.md §3](deploy-vps.md).
 
 ### Profile loại trừ nhau
 
@@ -155,16 +163,18 @@ docker compose -f compose.yml -f compose.tunnel.yaml --profile quick \
 
 ---
 
-## 6. Lệch giữa code và `.env.example`
+## 6. Lệch giữa code và `.env.example` — đã vá
 
-Đối chiếu tại `ef53f90`:
+Hai lệch ghi nhận tại `ef53f90` đã được sửa trong `.env.api.example`:
 
-| Vấn đề | Chi tiết |
+| Vấn đề | Trạng thái |
 |---|---|
-| **`.env.api.example` thiếu 5 biến** | `APK_TTL_HOURS`, `ARTIFACT_MIN_FREE_BYTES`, `ORPHAN_DIR_MIN_AGE_MINUTES`, `DELETE_AFTER_DOWNLOAD_GRACE_MINUTES`, `STUCK_JOB_GRACE_MINUTES`. Deploy theo file example là chạy toàn mặc định ngầm mà người vận hành không biết chúng tồn tại |
-| **`ARTIFACT_TTL_HOURS` lệch** | example ghi `48`, code mặc định `720`, tài liệu thiết kế chốt `720` |
+| `.env.api.example` thiếu 5 biến (`APK_TTL_HOURS`, `ARTIFACT_MIN_FREE_BYTES`, `ORPHAN_DIR_MIN_AGE_MINUTES`, `DELETE_AFTER_DOWNLOAD_GRACE_MINUTES`, `STUCK_JOB_GRACE_MINUTES`) | **đã thêm đủ, kèm ghi chú ý nghĩa** |
+| `ARTIFACT_TTL_HOURS` example ghi `48` còn code mặc định `720` | **đã sửa thành `720`**, khớp code và [artifact-design.md](artifact-design.md) |
 
-Cách vá nằm ở [kick-start.md §3](kick-start.md). Nhiệm vụ sửa hẳn nằm ở [plan.md](plan.md).
+Trên VPS thì hai file example này không còn là đường deploy chính:
+`deploy/bootstrap.sh` sinh thẳng `.env.api` với đủ biến và secret ngẫu nhiên.
+Example giờ chỉ để tra cứu và cho dev local.
 
 ---
 
