@@ -363,3 +363,72 @@ Với vài worker, bảng `jobs` + `claim_job()` + lease là đủ, và **dễ x
 PGMQ có visibility timeout và cơ chế message queue sẵn, nhưng vẫn phải giữ bảng `jobs` để phục vụ status, timeline và API — nên nó là thêm một hệ thống, không phải thay thế.
 
 Đổi khi có hàng chục worker hoặc khi `claim_job()` trở thành điểm nghẽn đo được. Không đổi vì "queue thì đúng bài hơn".
+
+---
+
+## 12. Chuẩn hoá và tám cột `jsonb`
+
+Schema này **cố ý phi chuẩn hoá ở tám chỗ**. Ghi ra để lần sau không ai "sửa cho đúng bài" mà không biết mình đang đánh đổi cái gì.
+
+| Cột | Bảng | Nếu chuẩn hoá thì thành |
+|---|---|---|
+| `listing_metadata` | `apps` | bảng `app_screenshots` + cột `icon_url` |
+| `capabilities` · `host_info` · `stats` | `workers` | ba bảng phụ hoặc cột phẳng |
+| `options` | `jobs` | cột phẳng cho từng tuỳ chọn |
+| `result_summary` | `jobs` | cột phẳng |
+| `data` | `job_events` | không chuẩn hoá được — mỗi `event_type` một hình dạng |
+| **`files`** | `artifacts` | **bảng `artifact_files`** |
+
+Cả tám đều `not null default '{}'` (riêng `files` là `'[]'`), nên không bao giờ phải kiểm null — chỉ phải kiểm rỗng.
+
+### Cột đáng bàn nhất: `artifacts.files`
+
+Nó là mảng `[{path, sizeBytes, sha256, contentType, select}]`. Thiết kế chuẩn hoá đúng bài là một bảng `artifact_files` với FK về `artifacts.id`.
+
+**Được gì khi chọn jsonb:**
+
+- Đọc/ghi một phát. `finalize` ghi cả mảng trong một câu update; `/artifact/files` trả gần như nguyên văn cột này.
+- Hình dạng khớp thẳng hợp đồng HTTP, không cần tầng ghép dòng thành mảng.
+- `download-url` lọc theo selector ngay trong bộ nhớ, không round-trip thêm.
+
+**Mất gì:**
+
+- **Không FK được vào từng file**, không constraint được từng dòng (`sizeBytes > 0`, `path` unique trong artifact — không có gì bắt buộc).
+- **Không index được nội dung.** Truy vấn kiểu *"mọi artifact có file lớn hơn 50 MB"* phải quét bảng rồi mở jsonb; với `artifact_files` thì đó là một index thường.
+- Sửa một file phải đọc–sửa–ghi cả mảng. Ở đây an toàn vì chỉ `finalize` ghi và nó ghi một lần, nhưng **nếu sau này có đường ghi thứ hai thì đó là race**.
+
+**Chọn jsonb vì `files` luôn được đọc và ghi trọn cục, không bao giờ theo từng dòng.** Ngày nào có nhu cầu truy vấn xuyên file — thống kê dung lượng theo loại, tìm file trùng sha256 giữa các artifact — thì đó là lúc tách bảng, không phải bây giờ.
+
+### Chỗ thật sự đã chuẩn hoá
+
+`apps` khoá theo `package_id` nên **một app đúng một dòng** bất kể kéo bao nhiêu lần — metadata app không bị chép lại vào từng job. Đó là chuẩn hoá đúng chỗ: dữ liệu app đổi thì sửa một dòng.
+
+Ngược lại `jobs` giữ cả `package_id` **và** `play_url`, tức chép lại `play_url` từ `apps`. Cố ý: job phải tự đủ để chạy lại kể cả khi dòng `apps` chưa tồn tại (§4 — `jobs.package_id` không có FK).
+
+### Không có quan hệ N-N
+
+Năm bảng, bốn quan hệ, **không bảng trung gian nào**: ba quan hệ 1-N (`apps→jobs`, `workers→jobs`, `jobs→job_events`) và một quan hệ 1-1 (`jobs→artifacts`, cưỡng chế bằng `unique` trên `artifacts.job_id`).
+
+Chưa có nhu cầu N-N nào. Khi tách quyền theo từng đối tác (`api_keys` × `jobs`) thì đó sẽ là chỗ N-N đầu tiên — xem [security.md](security.md).
+
+---
+
+## 13. Vì sao không dùng ORM
+
+Không Prisma, không Drizzle, không Sequelize, không TypeORM — **không có ORM nào trong `dependencies`**. Truy cập DB đi qua đúng hai đường:
+
+| Đường | Là gì |
+|---|---|
+| `supabase/migrations/*.sql` | SQL thuần, áp bằng `scripts/db-migrate.ts` |
+| `@supabase/supabase-js` | HTTP client gọi PostgREST — **không phải ORM**, không có query builder sinh SQL ở client |
+
+Lý do: schema này đứng trên hai thứ mà phần lớn ORM không diễn đạt nổi — `claim_job()` là plpgsql `security definer` với `for update skip locked` (§6), và RLS bật mà không policy (§7). Viết chúng qua ORM là viết SQL thô trong chuỗi, tức mất đúng cái lợi của ORM mà vẫn gánh thêm một tầng.
+
+**Nhưng phải trả giá ở bốn chỗ, và cả bốn đều đã hiện ra trong repo:**
+
+1. **Không có type sinh từ schema.** `createClient()` được gọi **không kèm** type parameter `<Database>`, nên mọi kết quả truy vấn là `any`. Đó là lý do [rule.md](rule.md) cho phép `any` **duy nhất** ở ranh giới Supabase, kèm điều kiện không lan ra ngoài router.
+2. **Hợp đồng phải viết tay.** `packages/contracts` dùng zod (87 chỗ khai schema) để bù lại phần type mà ORM lẽ ra sinh ra. Đây là lý do `checklist.md §2` có luật "thêm/sửa endpoint → cập nhật schema zod".
+3. **Migration phải tự quản.** Không có `prisma migrate`, nên `scripts/db-migrate.ts` tự giữ sổ `schema_migrations` kèm checksum (§9).
+4. **Cột chết không ai phát hiện hộ.** `artifacts.sha256` chỉ còn nghĩa với `bundle_zip` cũ, `artifacts.state = 'deleted'` chưa code nào đặt, `workers.status = 'draining'` chưa dùng, `apps.artifact_size_bytes` không có ai ghi vào — bốn chỗ lệch schema-vs-code mà một ORM sinh type sẽ chỉ ra ngay lúc compile.
+
+**Đổi khi nào:** khi số bảng vượt khoảng 15, hoặc khi tỉ lệ bug do lệch type giữa DB và code trở nên đo được. Lúc đó đường rẻ nhất **không phải** cài ORM mà là chạy `supabase gen types typescript` rồi truyền vào `createClient<Database>()` — được type mà không phải viết lại một dòng truy vấn nào, và giải quyết luôn cả điểm 1 lẫn điểm 4 ở trên.
