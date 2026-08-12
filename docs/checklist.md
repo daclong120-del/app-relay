@@ -141,6 +141,7 @@ Bất kỳ dòng nào đỏ → quay lại [runbook.md §2](runbook.md).
 | Đổi compose / profile | [environment.md §5](environment.md) + [runbook.md](runbook.md) |
 | Đổi pipeline CI | [CI-CD.md](CI-CD.md) |
 | Thêm chốt bảo mật | [security.md §5](security.md) |
+| Xong một khối chức năng, hoặc một task trong plan | [features.md](features.md) — đổi trạng thái ✅/🟨 và bảng §5 "chưa có" |
 | Gặp lỗi mất thời gian | [learn.md](learn.md), và nếu quan trọng thì thêm dòng vào [system-prompt.md](system-prompt.md) |
 | Mọi thay đổi người dùng thấy được | [changelog.md](changelog.md) |
 

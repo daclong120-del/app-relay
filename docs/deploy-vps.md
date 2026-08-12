@@ -36,6 +36,47 @@ khi mua, đây là thứ không sửa được từ phía mình.
 `bootstrap.sh` vẫn cho tiếp tục nếu thiếu KVM (có hỏi lại), và tự đặt
 `EMULATOR_ACCEL=off` cùng `EMULATOR_BOOT_TIMEOUT=1800`.
 
+### Máy đích hiện tại (`hieu-server`) — dưới chuẩn, phải chỉnh tay
+
+Đo ngày 2026-08-12 qua MCP ssh:
+
+| | Yêu cầu | `hieu-server` |
+|---|---|---|
+| Kiến trúc | x86_64 | x86_64 ✅ |
+| `/dev/kvm` | bắt buộc | có, `kvm-ok` báo dùng được ✅ · gid **108** |
+| vCPU | ≥ 4 | **2** ❌ |
+| RAM | ≥ 8 GB | **3.9 GB** ❌ (swap 6 GB) |
+| Đĩa | ≥ 60 GB | 59 GB, trống 40 GB ⚠️ |
+
+**Máy này còn chạy project khác** — `app-relay-dashboard`, `crawler-worker`,
+`watchtower` — chiếm sẵn ~380 MB. RAM thực sự dùng được chỉ còn ~3.2 GB.
+
+Giá trị mặc định `bootstrap.sh` sinh ra **quá khổ cho máy này** và đã làm bản
+deploy trước chết: worker chạy 19 giờ liền mà `adb devices` rỗng, tức emulator
+không bao giờ lên. Sau khi bootstrap xong, phải sửa `.env.worker`:
+
+| Biến | Bootstrap sinh | Sửa thành | Lý do |
+|---|---|---|---|
+| `AVD_RAM_MB` | 3072 | **2048** | 3072 + overhead vượt 3.9 GB → OOM |
+| `WORKER_GUI` | on | **off** | có seed nên không cần đăng nhập tay; bỏ Xvfb/x11vnc/openbox |
+| `EMULATOR_BOOT_TIMEOUT` | 600 | **1800** | 2 vCPU boot chậm dù có KVM |
+| `AVD_SDCARD_SIZE` | 2G | **512M** | tiết kiệm 1.5 GB đĩa; phiên đăng nhập không nằm trên sdcard |
+
+Và trong `.env.api`, `ARTIFACT_MIN_FREE_BYTES=10737418240` (10 GB) là ngưỡng API
+**từ chối ghi artifact**. Trên đĩa 59 GB, sau khi worker image 13 GB và AVD
+volume ~5 GB đáp xuống thì rất dễ chạm — hạ xuống 3 GB.
+
+Ước tính RAM sau khi chỉnh: guest 2048 + QEMU ~400 + worker node ~180 + api ~60
++ Postgres/PostgREST/nginx ~350 ≈ **3.0 GB / 3.2 GB**. Dư rất mỏng. Bỏ Postgres
+self-host để trỏ vào Supabase Cloud giải phóng thêm ~350 MB — cách rẻ nhất để có
+biên an toàn nếu không nâng được máy.
+
+> **`watchtower` đang chạy trên máy này tự pull image mới và restart container.**
+> Nếu nó với tới `worker`, emulator bị kill giữa chừng và để lại file khoá mồ côi
+> (`hardware-qemu.ini.lock`), lần sau không khởi động lại được — trên VPS thì
+> không ai xoá hộ. Gắn nhãn `com.centurylinklabs.watchtower.enable=false` cho
+> worker, hoặc dùng tag cố định thay vì `latest`.
+
 Domain: một bản ghi **A** trỏ về IP VPS, tạo **trước** khi chạy bootstrap.
 Let's Encrypt cấp cert qua HTTP-01 nên A record sai là cert fail.
 

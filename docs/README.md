@@ -19,7 +19,8 @@ Backend thuần — **không có dashboard**, không có tài khoản, người 
 | **Người trực khi có sự cố** | [runbook.md](runbook.md) |
 | **AI làm việc trên repo** | [system-prompt.md](system-prompt.md) → [rule.md](rule.md) → [checklist.md](checklist.md) |
 | **Người review code** | [checklist.md](checklist.md) → [test-case.md](test-case.md) |
-| **Người quyết định làm gì tiếp** | [plan.md](plan.md) |
+| **Người muốn xem tổng quan đã làm được gì** | [features.md](features.md) |
+| **Người quyết định làm gì tiếp** | [features.md](features.md) → [plan.md](plan.md) |
 
 ---
 
@@ -62,6 +63,7 @@ Backend thuần — **không có dashboard**, không có tài khoản, người 
 
 | File | Nội dung |
 |---|---|
+| [features.md](features.md) | **Đang có gì.** Kiểm kê 13 khối chức năng đối chiếu thẳng với code, mỗi khối kèm trạng thái ✅/🟨/⬜, phần kiểm thử phủ tới đâu, và **bảng "chưa có" nói thẳng** |
 | [plan.md](plan.md) | 14 task xếp P0/P1/P2, mỗi task có DoD, sơ đồ phụ thuộc, task rủi ro cao không giao AI |
 | [learn.md](learn.md) | 17 bài học kèm triệu chứng và những hướng **không** hiệu quả |
 | [changelog.md](changelog.md) | Theo ngày, nhóm Added/Changed/Fixed/Removed, breaking in đậm riêng |
@@ -107,6 +109,7 @@ flowchart TD
     CI["CI-CD.md"]
     SEC["security.md"]
 
+    FEAT["features.md<br/>đang có gì"]
     PLAN["plan.md<br/>làm gì tiếp"]
     LEARN["learn.md<br/>đã hỏng gì"]
     CL["changelog.md"]
@@ -123,6 +126,7 @@ flowchart TD
     LEARN --> SP
     LEARN --> PLAN
     CHK --> PLAN
+    ARC & API & TC & CI --> FEAT --> PLAN
     PLAN --> CL
 
     classDef entry fill:#eef,stroke:#557,stroke-width:2px
@@ -150,6 +154,17 @@ Bảng đồng bộ ở [checklist.md §5](checklist.md) nói rõ đổi gì th�
 Đối chiếu với code tại commit `ef53f90` (2026-08-10). Index GitNexus: 628 nodes, 1013 edges, 22 clusters, 18 flows.
 
 Sáu chỗ tài liệu cũ lệch với code đã được xử lý: bộ test bị xoá, `.env.api.example` thiếu 5 biến, `ARTIFACT_TTL_HOURS` lệch, URL tunnel đã chết, số liệu GitNexus trong `CLAUDE.md` cũ, cây thư mục thiếu 3 nhánh. Chi tiết và thứ tự sửa ở [plan.md](plan.md).
+
+**Cập nhật 2026-08-12** — bốn chỗ lệch với *môi trường thật* (không phải với code) đã sửa:
+
+| Chỗ lệch | Đã sửa ở |
+|---|---|
+| `deploy/README.md` mô tả distro WSL `Ubuntu-24.04` — distro đó đã bị xoá, engine thật là Docker Desktop | [`../deploy/README.md`](../deploy/README.md) viết lại, WSL hạ xuống mục 8 |
+| Cách lấy `KVM_GID` sai (hỏi host thay vì hỏi docker engine) | [docker.md §10](docker.md), [`../deploy/README.md` §4](../deploy/README.md) |
+| Dấu phân cách `COMPOSE_FILE` phụ thuộc OS — chưa từng được ghi | [docker.md §10](docker.md), [`../deploy/README.md`](../deploy/README.md) |
+| `deploy-vps.md` giả định VPS đạt chuẩn; máy đích thật 2 vCPU / 3.9 GB và dùng chung với project khác | [deploy-vps.md §1](deploy-vps.md) |
+
+Kèm theo: [docker.md §8](docker.md) thêm cảnh báo Docker Hub tự tạo repo **public**, [learn.md](learn.md) thêm 5 mục, [system-prompt.md](system-prompt.md) thêm 6 dòng vào bảng cạm bẫy.
 
 Kiểm tài liệu còn khớp code:
 

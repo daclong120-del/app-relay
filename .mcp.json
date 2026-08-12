@@ -6,15 +6,17 @@
         "-y",
         "@fangjunjie/ssh-mcp-server",
         "--ssh-config-file",
-        "~/.ssh/config",
+        "C:/Users/CONG HIEU/.ssh/config",
         "--host",
         "hieu-server",
         "--allowed-remote-paths",
         "/root/app-relay",
+        "--allowed-local-paths",
+        "d:/super-tools/app-relay",
         "--whitelist",
-        "^(cd /root/app-relay/deploy && )?docker compose (ps|logs|top|config|version)( .*)?$,^docker (ps|images|stats --no-stream|version)( .*)?$,^(cd /root/app-relay/deploy && )?docker compose exec -T worker adb devices$,^(cd /root/app-relay/deploy && )?docker compose exec -T worker adb shell getprop sys\\.boot_completed$,^(cd /root/app-relay && )?git (status|log|diff|remote|rev-parse)( .*)?$,^cat /root/app-relay/deploy/\\.env\\.(api|worker)\\.example$,^grep -E '\\^?COMPOSE_(FILE|PROFILES)' /root/app-relay/deploy/\\.env$,^curl -fsS(I| -i)? http://127\\.0\\.0\\.1:5500/v1/health$,^df -h( .*)?$,^free -m$,^uptime$",
+        "^(cd /root/app-relay/deploy && )?docker compose (ps|logs|top|config|version)( .*)?$,^docker (ps|images|stats --no-stream|version)( .*)?$,^(cd /root/app-relay/deploy && )?docker compose exec -T worker adb devices$,^(cd /root/app-relay/deploy && )?docker compose exec -T worker adb shell getprop sys\\.boot_completed$,^(cd /root/app-relay && )?git (status|log|diff|remote|rev-parse)( .*)?$,^cat /root/app-relay/deploy/\\.env\\.(api|worker)\\.example$,^grep -E '\\^?COMPOSE_(FILE|PROFILES)' /root/app-relay/deploy/\\.env$,^curl -fsS(I| -i)? http://127\\.0\\.0\\.1:5500/v1/health$,^df -h( .*)?$,^free -m$,^uptime$,^(cd /root/app-relay/deploy && )?docker compose (pull|up -d|start|stop|restart)( [a-z0-9-]+)*$,^(cd /root/app-relay/deploy && )?docker compose exec -T worker kvm-ok$,^(cd /root/app-relay/deploy && )?docker compose exec -T worker bash -c '(head|tail) -[0-9]+ /tmp/worker-node-std(out|err)\\*\\.log'$,^(cd /root/app-relay/deploy && )?(DOMAIN=[A-Za-z0-9.-]+ )?(CADDY_EMAIL=[A-Za-z0-9.@_-]+ )?\\./bootstrap\\.sh( --[a-z-]+)*$,^ls -la? /dev/kvm$,^uname -[amrs]$,^nproc$,^getent group kvm$,^egrep -c '\\(vmx\\|svm\\)' /proc/cpuinfo$,^docker system df$,^mkdir -p /root/app-relay(/[A-Za-z0-9._-]+)*$,^ls -la\\?? /root/app-relay(/[A-Za-z0-9._-]+)*$,^chmod \\+x /root/app-relay/deploy/[A-Za-z0-9._-]+\\.sh$,^(cd /root/app-relay/deploy && )?(DOMAIN=[A-Za-z0-9.-]+ )?(CADDY_EMAIL=[A-Za-z0-9.@_-]+ )?bash \\./bootstrap\\.sh( --[a-z-]+)*$,^docker volume ls$,^(cd /root/app-relay/deploy && )?docker compose exec -T worker bash -c 'ls -la /home/worker/\\.android/avd/'$,^(cd /root/app-relay/deploy && )?docker compose exec -T worker bash -c 'pgrep -a qemu-system'$",
         "--blacklist",
-        ".*\\brm\\b.*,.*\\bdd\\b.*,.*mkfs.*,.*shutdown.*,.*reboot.*,.*service_role.*,.*\\.env\\.api\\b.*,.*\\.env\\.worker\\b.*,.*SECRET.*,.*TOKEN.*,.*PASSWORD.*,.*compose down.*,.*system prune.*,.*--volumes.*,.*-v /.*"
+        ".*\\brm\\b.*,.*\\bdd\\b.*,.*mkfs.*,.*shutdown.*,.*reboot.*,.*service_role.*,.*\\.env\\.api\\b.*,.*\\.env\\.worker\\b.*,.*SECRET.*,.*TOKEN.*,.*PASSWORD.*,.*compose down.*,.*system prune.*,.*--volumes.*,.*-v /.*,.*compose build.*,.*docker build.*"
       ]
     }
   }

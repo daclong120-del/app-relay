@@ -8,14 +8,32 @@ Format: `Added` / `Changed` / `Fixed` / `Removed`.
 
 ## 2026-08-12
 
+### Added
+
+- **`docs/features.md` — kiểm kê "đang có gì".** Bộ tài liệu trước đây trả lời được *làm cái gì* ([requirements.md](requirements.md)), *chia thành gì* ([architecture.md](architecture.md)) và *còn thiếu gì* ([plan.md](plan.md)), nhưng không file nào trả lời **"dự án này đã có cục nào chạy được rồi?"** — muốn biết phải tự ghép từ code với năm sáu file khác nhau. File mới liệt kê 13 khối chức năng đối chiếu thẳng với code, mỗi khối một trạng thái ✅ chạy thật / 🟨 có nhưng chưa đủ / ⬜ chưa làm, kèm bảng kiểm thử đang phủ tới đâu và **bảng "chưa có" nói thẳng** (gồm cả những thứ cố ý không làm: dashboard, tài khoản người dùng). Ba khối đang 🟨: dọn dẹp tự động (ba chốt chống xoá nhầm chưa có test), container emulator (`KVM_GID` sai thì tụt về chạy phần mềm không báo lỗi), CI/CD (không build được worker image).
+- `docs/checklist.md §5` thêm một dòng vào bảng đồng bộ: xong một khối chức năng hoặc một task trong plan thì phải cập nhật trạng thái ở [features.md](features.md). Thiếu dòng này thì file kiểm kê sẽ cũ đi im lặng — đúng loại "doc sai" mà §5 dựng ra để chặn.
+- **`.mcp.json` — MCP `ssh` để thao tác VPS `hieu-server` ngay trong phiên làm việc.** Bốn tool `execute-command` / `upload` / `download` / `list-servers`, chặn hai lớp: whitelist regex cho lệnh được chạy, blacklist cho lệnh cấm tuyệt đối (`rm`, `compose down`, `--volumes`, mọi chuỗi chứa `TOKEN`/`SECRET`/`PASSWORD`). **`compose build` và `docker build` nằm trong blacklist** — build trên VPS là đúng cái làm mất seed CH Play, chặn ở tầng này thì không ai lỡ tay được.
+- **`docs/docker.md §8` — cạm bẫy Docker Hub tự tạo repo PUBLIC.** `docker push` vào repo chưa tồn tại thì Hub tự tạo theo *Default privacy* của tài khoản, mặc định public, **không hỏi và không cảnh báo**. Với worker image (chứa seed đăng nhập Google) đây là rò rỉ tài khoản. Kèm lệnh kiểm `is_private` và lưu ý `404` có hai nghĩa: private *hoặc* chưa tồn tại.
+- **`docs/deploy-vps.md §1` — hồ sơ máy đích thật (`hieu-server`).** 2 vCPU / 3.9 GB / KVM gid 108, còn chạy chung với `app-relay-dashboard`, `crawler-worker`, `watchtower`. Kèm bảng bốn tham số phải sửa sau bootstrap (`AVD_RAM_MB` 3072→2048, `WORKER_GUI` on→off, `EMULATOR_BOOT_TIMEOUT` 600→1800, `AVD_SDCARD_SIZE` 2G→512M) và cảnh báo `watchtower` restart worker sẽ để lại khoá AVD mồ côi.
+- `docs/learn.md` — 5 mục mới: repo public im lặng, `KVM_GID` hỏi nhầm máy, hai engine Docker tách biệt, `COMPOSE_FILE` phân cách theo OS, MCP chết vì không bung `~`.
+
 ### Changed
 
+- **`deploy/README.md` viết lại cho Docker Desktop.** Distro WSL `Ubuntu-24.04` mà tài liệu này mô tả **đã bị xoá ngày 2026-08-12**, trong khi engine thật giữ image và cả ba volume là Docker Desktop. Bản cũ khiến người đọc (và AI) tin rằng mất distro là mất phiên đăng nhập CH Play — không đúng. Mục 8 giữ lại phần WSL nhưng hạ xuống "chỉ dùng test trong trường hợp đặc biệt".
+- `DOCKERHUB_USERNAME` trong `deploy/.env`: `daclong120` → `conghieudoan19`. Namespace cũ **không tồn tại** trên Docker Hub (API trả 404) nên mọi `docker push` đều bị từ chối — đây là lý do worker image mang seed chưa bao giờ lên được registry.
 - **BREAKING — VPS không còn cần git.** Deploy chuyển hẳn sang Docker Hub. Job ④ của CI thay `git fetch` + `reset --hard <sha>` bằng `appleboy/scp-action`: chép `deploy/` và `supabase/migrations/` thẳng từ runner sang máy đích, rồi `docker login` → `compose pull` → `up -d`. VPS chỉ cần `docker` và `ssh` — bỏ được deploy key, token đọc repo, và điều kiện "thư mục deploy phải là git clone".
 - **`scp` chỉ ghi đè, không xoá.** Khác `reset --hard` trước đây: file đã xoá khỏi repo vẫn nằm lại trên VPS. Đổi tên hay bỏ một file compose thì phải xoá tay ở máy đích.
 - **Job ④ `docker login` trước khi pull.** Worker image chứa seed đăng nhập Google nên repo Docker Hub bắt buộc private; không login thì `compose pull` fail với `pull access denied` — thông báo rất dễ đọc nhầm thành "image không tồn tại". Thêm `DOCKERHUB_TOKEN` vào danh sách secret job ④.
 - Job ④ thêm `chmod +x ./*.sh` — `scp` không giữ bit thực thi, thiếu dòng này thì `./gui.sh` trên VPS báo `Permission denied`.
 - **`bootstrap.sh` trên VPS phải chạy kèm `--no-build`.** Máy đích không có `avd-seed/`, tự build worker sẽ ra image mất phiên đăng nhập CH Play, cộng ~30 phút. Tài liệu đã đổi; **default của script vẫn là build** — chưa đụng tới.
 - `deploy/gui.sh` bỏ gợi ý `git pull`, đổi sang `docker compose pull worker`.
+
+### Fixed
+
+- **Cách lấy `KVM_GID` trong tài liệu đã sai.** `deploy/README.md` và `docs/docker.md §10` đều bảo dùng `getent group kvm` **trên host** — đó là hỏi nhầm máy. `group_add` nhận gid theo kernel chạy container, tức VM của docker engine: Docker Desktop là **991**, distro WSL ra số khác, Ubuntu server thường 108. Lấy đúng bằng `docker run --rm --privileged alpine stat -c %g /dev/kvm`. Đặt sai thì emulator **âm thầm** tụt về chạy phần mềm, không có lỗi nào báo ra.
+- **`localhost` trong trình duyệt không phải `127.0.0.1`.** `deploy/README.md §1` trước đây ghi `http://localhost:5500`. Chrome phân giải `localhost` ra `::1` trước, mà cổng chỉ bind IPv4 → `ERR_CONNECTION_REFUSED`, trong khi `curl` (mặc định IPv4) vẫn chạy — rất dễ tưởng container chết. Cùng gốc với lỗi healthcheck ngày 2026-08-07 nhưng biểu hiện ở phía host. Tài liệu đổi hết sang `127.0.0.1`.
+- **Dấu phân cách `COMPOSE_FILE` phụ thuộc OS chạy docker CLI** (`;` Windows, `:` Linux) — chưa từng được ghi ở đâu. Đặt sai thì compose chết ở `stat compose.yml;compose.kvm.yaml: no such file`, thông báo không gợi ý gì tới nguyên nhân. Đã ghi vào đầu `deploy/README.md`, mục 4, và bảng cạm bẫy `docs/docker.md §10`.
+- `deploy/README.md §6` bổ sung ba sự cố gặp thật mà tài liệu chưa có: khoá AVD mồ côi sau `up -d --recreate` (`Running multiple emulators with the same AVD`), cổng 6080 bị từ chối khi `WORKER_GUI=off` (đúng thiết kế, không phải hỏng), và container biến mất khi distro WSL tự tắt lúc idle.
 
 ### Removed
 

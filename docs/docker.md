@@ -304,10 +304,36 @@ docker push <user>/app-relay-api:latest
 > **Repo Docker Hub phải để PRIVATE.** Worker image chứa seed AVD, tức là chứa
 > phiên đăng nhập Google. Ai `pull` được là vào được tài khoản đó.
 
-**Trạng thái đang sai (đo 2026-08-11):** image trên máy dev đang mang tag
-`daclong120/...`, nhưng tài khoản Docker Hub đăng nhập là `conghieudoan19`, và
-namespace `daclong120` **không tồn tại**. Đẩy lên sẽ bị từ chối. Cần tag lại
-trước khi push.
+### Cạm bẫy: push vào repo chưa tồn tại thì Docker Hub tự tạo nó PUBLIC
+
+Đây là chỗ nguy hiểm nhất trong cả tài liệu này, và nó **im lặng**.
+
+`docker push user/repo:tag` khi `repo` chưa tồn tại thì Docker Hub tự tạo repo
+theo **Default privacy** của tài khoản — mặc định là *public*. Không có câu hỏi
+xác nhận, không có cảnh báo; lệnh chạy trơn tru và in `Pushed` như bình thường.
+
+Với `app-relay-api` thì chỉ là khó chịu. Với `app-relay-worker` thì đó là
+**đăng phiên đăng nhập Google của bạn lên Internet**.
+
+Kiểm tra trước khi push, và kiểm tra lại sau:
+
+```bash
+# 404 = private hoặc chưa tồn tại (an toàn để push tiếp)
+# 200 = ĐANG PUBLIC — dừng lại
+curl -s -o /dev/null -w "%{http_code}\n" \
+  https://hub.docker.com/v2/repositories/<user>/app-relay-worker/
+```
+
+Cách chắc chắn: vào `hub.docker.com` → **Create repository** → chọn **Private**
+*trước khi* push lần đầu. Và đặt Account settings → **Default privacy** →
+Private để khỏi phụ thuộc vào trí nhớ.
+
+Xoá repo public đi sau đó **không thu hồi được** thứ đã bị pull hoặc index.
+
+**Trạng thái (đo 2026-08-12):** đã sửa. Namespace `daclong120` xác nhận **không
+tồn tại** (Docker Hub API trả 404), `conghieudoan19` có thật. Image trên máy dev
+đã được gắn lại tag `conghieudoan19/...` và `DOCKERHUB_USERNAME` trong
+`deploy/.env` đã đổi theo. Hai tag cùng trỏ một image ID nên không tốn thêm đĩa.
 
 ---
 
@@ -343,7 +369,11 @@ phút, và mọi thứ của project khác trên cùng máy.
 | Triệu chứng | Nguyên nhân | Xử lý |
 |---|---|---|
 | API `unhealthy` mãi, worker không bao giờ start | Healthcheck dùng `localhost` → resolve `::1`, mà server chỉ bind IPv4 | Dùng `127.0.0.1` trong healthcheck |
-| Emulator chạy nhưng chậm bất thường | Thiếu `-f compose.kvm.yaml`, hoặc `KVM_GID` sai | `docker exec deploy-worker-1 kvm-ok`. Lấy gid đúng: `getent group kvm \| cut -d: -f3` |
+| Emulator chạy nhưng chậm bất thường | Thiếu `compose.kvm.yaml`, hoặc `KVM_GID` sai | `docker exec deploy-worker-1 kvm-ok`. Lấy gid đúng: `docker run --rm --privileged alpine stat -c %g /dev/kvm` — xem dòng dưới bảng |
+| `docker compose` chết ở `stat compose.yml;compose.kvm.yaml: no such file` | Dấu phân cách `COMPOSE_FILE` sai hệ điều hành | `;` khi gõ từ Windows, `:` khi gõ từ WSL/Linux |
+| Emulator chết ngay: `Running multiple emulators with the same AVD` | File khoá mồ côi sau khi container bị kill cứng | Xác nhận `pgrep -a qemu-system` rỗng rồi xoá `chpay.avd/hardware-qemu.ini.lock` và `multiinstance.lock` |
+| Trình duyệt `ERR_CONNECTION_REFUSED` mà `curl` vẫn chạy | Trình duyệt phân giải `localhost` → `::1`, cổng chỉ bind IPv4 | Gõ `127.0.0.1` thay vì `localhost` |
+| `docker push` xong mới biết repo đang public | Docker Hub tự tạo repo public khi repo chưa tồn tại | Tạo repo Private thủ công trước khi push — xem §8 |
 | Worker online nhưng không nhận job | `WORKER_TOKEN` ở `.env.api` và `.env.worker` lệch nhau | Sửa cho trùng tuyệt đối |
 | Deploy máy mới, CH Play hỏi đăng nhập lại | Build ở máy đích (quên `--no-build`), mà `avd-seed/` bị gitignore nên máy đó không có seed | Build ở máy giữ seed rồi `push`; VPS chỉ `pull` |
 | `pull access denied` lúc deploy | Repo Docker Hub để private (bắt buộc, vì worker image chứa credential Google) mà VPS chưa `docker login` | `docker login` trên VPS; job ④ đã tự làm bước này |
@@ -351,6 +381,13 @@ phút, và mọi thứ của project khác trên cùng máy.
 | Xoá một file compose khỏi repo, VPS vẫn còn | `scp` chỉ ghi đè, không xoá — khác `git reset --hard` trước đây | Xoá tay trên máy đích |
 | `address already in use` cổng 5500 | Bật `compose.http.yaml` cùng lúc với Caddy | Chọn một |
 | Artifact ghi lỗi `EACCES` | Volume cũ từ thời chạy root, không được chown lại | `docker compose run --rm --user root api chown -R 10001:10001 /data/artifacts` |
+
+**Về `KVM_GID`:** đây là gid của `/dev/kvm` **trong VM chạy docker engine**,
+không phải trên máy bạn đang ngồi. Docker Desktop trên Windows là 991; một distro
+WSL cài docker riêng lại là số khác; Ubuntu server thường là 108 (đúng bằng mặc
+định trong `compose.kvm.yaml`). Chạy `getent group kvm` trên host là hỏi nhầm
+máy — nó trả về số của host chứ không phải của engine, và đặt sai thì emulator
+**âm thầm** tụt về chạy phần mềm.
 
 Danh sách đầy đủ hơn: [runbook.md](runbook.md) · [learn.md](learn.md).
 

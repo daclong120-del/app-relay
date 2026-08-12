@@ -8,6 +8,103 @@ Thứ tự mới nhất trước.
 
 ---
 
+## 2026-08-12 — `docker push` tự tạo repo và tạo nó PUBLIC
+
+**Vấn đề**: đẩy image lên Docker Hub cho VPS pull về.
+
+**Triệu chứng**: **không có triệu chứng nào cả.** `docker push` chạy trơn, in `Pushed` từng layer, `digest: sha256:…` như mọi lần. Chỉ khi chủ động hỏi lại API mới lộ ra:
+
+```bash
+curl -s https://hub.docker.com/v2/repositories/<user>/app-relay-api/ | jq .is_private
+# false
+```
+
+**Nguyên nhân**: repo chưa tồn tại thì Docker Hub **tự tạo** theo *Default privacy* của tài khoản, mặc định là public. Không hỏi xác nhận, không cảnh báo.
+
+**Đã thử**: kiểm tra trước bằng `curl` repo → trả `404`. Đã hiểu nhầm 404 là "private". **404 có hai nghĩa: private, hoặc chưa tồn tại** — và hai nghĩa đó dẫn tới hai kết cục hoàn toàn khác nhau khi push.
+
+**Hiệu quả**: tạo repo Private thủ công trên web *trước* lần push đầu, và đặt Account settings → Default privacy → Private. Kiểm lại sau khi push, không chỉ trước.
+
+**Bài học**: với image chứa credential — ở đây là seed AVD mang phiên đăng nhập Google — **"không thấy lỗi" không phải bằng chứng an toàn**. Phải có một phép kiểm khẳng định (`is_private == true`), không phải phép kiểm phủ định (không báo lỗi). Và đẩy lên registry là **không thu hồi được**: xoá repo sau đó không lấy lại thứ đã bị pull hay index.
+
+---
+
+## 2026-08-12 — `KVM_GID` lấy bằng `getent group kvm` là hỏi nhầm máy
+
+**Vấn đề**: xác định `KVM_GID` cho `compose.kvm.yaml` trên máy dev Windows.
+
+**Triệu chứng**: `.env` đang để `991` và emulator chạy tốt. Tôi "sửa" thành `993` vì `getent group kvm` trong một distro WSL trả về `993` — và suýt làm emulator tụt về chạy phần mềm. Không có lỗi nào báo ra ở cấu hình sai; chỉ chậm gấp hàng chục lần.
+
+**Nguyên nhân**: `group_add` nhận gid theo **kernel đang chạy container**, tức là VM của docker engine — không phải máy bạn đang gõ lệnh, cũng không phải một distro WSL nào khác. Docker Desktop là **991**; distro WSL cài docker riêng ra số khác; Ubuntu server thường **108**.
+
+**Hiệu quả**: hỏi thẳng chính engine đang dùng, không hỏi host:
+
+```bash
+docker run --rm --privileged alpine stat -c %g /dev/kvm
+```
+
+**Bài học**: khi một giá trị mô tả **môi trường bên trong container**, mọi lệnh chạy ở host đều là nguồn sai. Và giá trị đang chạy tốt là bằng chứng mạnh hơn tài liệu — trước khi "sửa" một con số, hãy hỏi vì sao nó đang đúng.
+
+---
+
+## 2026-08-12 — Docker Desktop và docker-trong-WSL là hai kho hoàn toàn tách biệt
+
+**Vấn đề**: cần vận hành stack trên máy dev; tài liệu mô tả một distro WSL.
+
+**Triệu chứng**: distro `Ubuntu-24.04` biến mất giữa phiên làm việc (`WSL_E_DISTRO_NOT_FOUND`). Quét cả C: lẫn D: không còn `ext4.vhdx` nào của nó. Kết luận vội: **mất image worker 13 GB và volume chứa phiên đăng nhập CH Play**.
+
+**Thực tế**: không mất gì. Docker Desktop có kho riêng, và nó đang giữ đủ cả image lẫn ba volume. Distro WSL kia chỉ là **một bản sao thứ hai**, cũ hơn.
+
+**Đã thử**: quét `ext4.vhdx` toàn ổ để tìm dữ liệu "đã mất" — vô ích, vì dữ liệu chưa bao giờ ở đó. Việc cần làm ngay từ đầu chỉ là `docker images` trên engine còn lại.
+
+**Nguyên nhân sâu hơn**: tài liệu `deploy/README.md` mô tả distro WSL như thể đó là *máy dev*, nên khi distro mất thì suy luận "mất máy = mất dữ liệu" trông rất hợp lý.
+
+**Bài học**: "engine nào đang chạy" là câu hỏi phải trả lời **trước** mọi thao tác docker, không phải sau khi thấy lạ. `docker context ls` và `docker info` mất một giây. Và khi nghi mất dữ liệu, **kiểm kho còn lại trước khi đi tìm xác** — kết luận mất mát sai làm hỏng phán đoán của mọi bước sau.
+
+---
+
+## 2026-08-12 — `COMPOSE_FILE` dùng dấu phân cách theo OS của CLI
+
+**Vấn đề**: `docker compose` không chạy được trong WSL dù `.env` trông đúng.
+
+**Triệu chứng**:
+
+```text
+stat /mnt/d/super-tools/app-relay/deploy/compose.yml;compose.kvm.yaml: no such file or directory
+```
+
+Thông báo lỗi có chứa cả chuỗi sai nhưng **không gợi ý gì tới dấu phân cách** — rất dễ đọc thành "thiếu file".
+
+**Nguyên nhân**: `COMPOSE_PATH_SEPARATOR` mặc định là `;` trên Windows và `:` trên POSIX. Giá trị `compose.yml;compose.kvm.yaml` đúng khi gõ từ Windows, sai khi gõ từ trong WSL — và ngược lại.
+
+**Hiệu quả**: đặt theo OS chạy **docker CLI**, không theo OS của container. Cần dùng cả hai đường thì đặt `COMPOSE_PATH_SEPARATOR` tường minh.
+
+**Bài học**: file `.env` dùng chung giữa Windows và WSL có ít nhất hai giá trị phụ thuộc nền tảng — cái này và `KVM_GID`. Ghi comment ngay trong `.env`, vì lỗi sinh ra không nói gì về nguyên nhân.
+
+---
+
+## 2026-08-12 — MCP server chết im vì không bung dấu `~`
+
+**Vấn đề**: cấu hình `@fangjunjie/ssh-mcp-server` trong `.mcp.json` với `--ssh-config-file ~/.ssh/config`.
+
+**Triệu chứng**: Claude Code **không có tool nào** của server đó. Không báo lỗi ở UI, restart nhiều lần vẫn vậy. Trông y hệt "MCP chưa được duyệt".
+
+**Đã thử**: restart nhiều lần, kiểm `.mcp.json` bằng mắt — cú pháp JSON hoàn toàn hợp lệ.
+
+**Nguyên nhân**: gói không tự bung `~`. Trên Linux shell bung trước khi truyền, còn Windows spawn thẳng nên tiến trình nhận đúng chữ `~/.ssh/config`, không tìm thấy file, **thoát ngay lúc khởi động** — nên không kịp đăng ký tool nào.
+
+**Hiệu quả**: đường dẫn tuyệt đối. Xác minh bằng cách tự dựng server và làm handshake JSON-RPC thay vì đoán:
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{...}}' | npx -y @fangjunjie/ssh-mcp-server --ssh-config-file "C:/Users/<user>/.ssh/config" --host <alias>
+# [ERROR] SSH config file not found: ~/.ssh/config     ← trước khi sửa
+# [INFO]  MCP server connection established            ← sau khi sửa
+```
+
+**Bài học**: "MCP không có tool" gần như luôn là **server chết lúc khởi động**, không phải vấn đề quyền. Chạy tay đúng lệnh trong `.mcp.json` là cách nhanh nhất thấy stderr thật. Và `~` chỉ là quy ước của shell — mọi tiến trình spawn trực tiếp đều nhận nó như một ký tự bình thường.
+
+---
+
 ## 2026-08-10 — `tests/test-endpoints/` bị xoá mà script bị bỏ lại
 
 **Vấn đề**: commit `ef53f90` xoá 3410 dòng test conformance nhưng không xoá hai script `test:endpoints` và `download:artifacts` trong `package.json`.
@@ -221,6 +318,8 @@ Dùng WSL làm server thật thì đăng ký vào Task Scheduler chạy lúc boo
 
 **Bài học**: `RestartCount=0` cộng với container đã dừng không phải là "bình thường" — đó là dấu hiệu **cả máy** bị tắt, không phải container chết. Nhìn ra ngoài Docker.
 
+> **Tái diễn 2026-08-12.** Distro tự tắt sau ~3 phút không có phiên nào mở, đúng lúc đang test — mọi cổng thành `ERR_CONNECTION_REFUSED` và trông như container hỏng. Chuyển hẳn sang **Docker Desktop** thì không còn dính, vì nó tự giữ VM sống. Dùng docker trong distro WSL mà không có tiến trình keepalive thì lỗi này **sẽ** quay lại.
+
 ---
 
 ## 2026-08-07 — Lock AVD sót lại sau SIGTERM
@@ -236,6 +335,17 @@ Dùng WSL làm server thật thì đăng ký vào Task Scheduler chạy lúc boo
 > **Không đụng `userdata-qemu.img*`** — phiên đăng nhập Google nằm trong đấy. Xoá là phải đăng nhập lại tay qua noVNC.
 
 **Bài học**: khi một tiến trình có thể bị giết bất ngờ, biết **file lock nào an toàn để xoá** và file nào **tuyệt đối không** là kiến thức vận hành phải viết ra, không để trong đầu.
+
+> **Tái diễn 2026-08-12**, lần này thông báo lỗi rõ hơn và đáng ghi lại vì đó là thứ người sau sẽ gõ vào google:
+>
+> ```text
+> FATAL | Running multiple emulators with the same AVD is an experimental feature.
+>         Please use -read-only flag to enable this feature.
+> ```
+>
+> Nghe như "đang có hai emulator", nhưng `pgrep -a qemu-system` rỗng — chỉ là khoá mồ côi. Nguyên nhân lần này là `docker compose up -d` **recreate** container (kill cứng bản cũ), không phải distro bị thu hồi. Nghĩa là mọi thao tác recreate/restart đều có thể sinh ra nó, không riêng sự cố máy.
+>
+> Đây chính là lý do `compose.prod.yaml` đặt `stop_grace_period: 120s`. Máy dev không nạp file đó nên **dev dính thường xuyên hơn production**.
 
 ---
 

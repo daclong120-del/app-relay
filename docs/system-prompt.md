@@ -107,6 +107,12 @@ Thăm dò code lạ thì dùng `query` / `context` thay vì grep mò.
 | Chạy song song Docker Desktop + Docker trong WSL | distro WSL2 dùng chung network namespace → tranh cổng 5500/6080/54322 | dừng một bên trước |
 | Để WSL tự chạy | Windows thu hồi distro khi rảnh → systemd poweroff → mọi container chết mà `RestartCount=0` | tiến trình keepalive `sleep infinity` |
 | `${VAR:?}` trong `command` của service có profile | compose nội suy command của **mọi** service kể cả service không thuộc profile đang bật → chặn luôn profile khác | truyền qua `environment` |
+| `docker push` vào repo chưa tồn tại | Docker Hub **tự tạo repo PUBLIC**, không hỏi, không cảnh báo → worker image mang seed = đăng phiên Google lên Internet | tạo repo Private thủ công **trước** khi push, kiểm lại `is_private` sau |
+| `KVM_GID` lấy bằng `getent group kvm` trên host | hỏi nhầm máy — gid phải theo VM chạy docker engine (Docker Desktop **991**, distro WSL số khác, Ubuntu server 108). Sai thì emulator **âm thầm** chạy phần mềm, không lỗi | `docker run --rm --privileged alpine stat -c %g /dev/kvm` |
+| `COMPOSE_FILE` dùng chung một dấu phân cách cho mọi máy | `;` là Windows, `:` là POSIX — sai thì chết ở `stat compose.yml;compose.kvm.yaml: no such file`, thông báo không hề nhắc tới dấu phân cách | đặt theo OS chạy **docker CLI**, không theo container |
+| Mở cổng đã publish bằng `localhost` trên trình duyệt | Chrome thử `::1` trước, cổng chỉ bind IPv4 → `ERR_CONNECTION_REFUSED` trong khi `curl` vẫn chạy → tưởng container chết | gõ `127.0.0.1` |
+| Coi distro WSL và Docker Desktop là một kho | hai engine tách biệt, image và volume riêng — xoá distro **không** mất dữ liệu bên kia, và ngược lại | `docker context ls` trước mọi thao tác |
+| `~` trong tham số `.mcp.json` | tiến trình spawn thẳng không có shell bung `~` → server thoát ngay lúc khởi động → Claude Code **không có tool nào**, trông như chưa được duyệt | đường dẫn tuyệt đối |
 
 ---
 
