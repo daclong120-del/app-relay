@@ -14,7 +14,7 @@ Backend thuần — **không có dashboard**, không có tài khoản, người 
 | **Dev mới vào dự án** | [requirements.md](requirements.md) → [architecture.md](architecture.md) → [folder-struc.md](folder-struc.md) → [rule.md](rule.md) |
 | **Người dựng hệ thống** | [kick-start.md](kick-start.md) → [environment.md](environment.md) |
 | **Người chưa quen Docker** | [docker.md](docker.md) → [`../deploy/README.md`](../deploy/README.md) |
-| **Người deploy lên VPS** | [docker.md](docker.md) → [emu-gui-workflow.md](emu-gui-workflow.md) → [deploy-vps.md](deploy-vps.md) → [public-access.md](public-access.md) |
+| **Người deploy lên VPS** | [docker.md](docker.md) → [emu-gui-workflow.md](emu-gui-workflow.md) → [avd-seed.md](avd-seed.md) → [deploy-vps.md](deploy-vps.md) → [public-access.md](public-access.md) |
 | **Người mở API cho đối tác** | [public-access.md](public-access.md) → [security.md](security.md) |
 | **Người trực khi có sự cố** | [runbook.md](runbook.md) |
 | **AI làm việc trên repo** | [system-prompt.md](system-prompt.md) → [rule.md](rule.md) → [checklist.md](checklist.md) |
@@ -75,7 +75,8 @@ Backend thuần — **không có dashboard**, không có tài khoản, người 
 |---|---|
 | [test-case.md](test-case.md) | ~120 case có ID, phân loại tự động / thủ công, mục tiêu coverage theo vùng |
 | [docker.md](docker.md) | Nền tảng Docker cho người chưa có nền. 4 khái niệm, **bảng 7 image của dự án**, cách ghép 6 file compose, 3 con đường deploy, volume nào mất là mất thật, dọn đĩa an toàn, 6 cạm bẫy |
-| [emu-gui-workflow.md](emu-gui-workflow.md) | Toàn cảnh 3 giai đoạn: dựng → lên VPS lần đầu → CI tự động. **4 hiểu nhầm thường gặp**, bảng cái gì trong image / cái gì trong volume, và **đánh giá thẳng quy trình này chuyên nghiệp tới đâu** |
+| [emu-gui-workflow.md](emu-gui-workflow.md) | Toàn cảnh 3 giai đoạn: dựng → lên VPS lần đầu → CI tự động. **4 hiểu nhầm thường gặp**, và **đánh giá thẳng quy trình này chuyên nghiệp tới đâu** |
+| [avd-seed.md](avd-seed.md) | **Chủ sở hữu duy nhất** của mọi thứ về seed AVD, worker image và cờ `--no-build`. Cách chụp seed, vì sao CI không build worker, **4 chế độ hỏng đều im lặng**, 3 điều dễ mất tiền |
 | [deploy-vps.md](deploy-vps.md) | VPS trắng → stack chạy được bằng `deploy/bootstrap.sh`. Tự chứa: Postgres self-host, **một bước tay duy nhất** (đăng nhập CH Play) |
 | [public-access.md](public-access.md) | Đường ra Internet **chính thức**: Cloudflare Tunnel. Quick vs named, chuyển quick→named, vì sao bỏ Caddy, **giới hạn phải biết trước khi đưa cho đối tác** |
 | [CI-CD.md](CI-CD.md) | 4 job đang chạy, secret cần có, rollback, **4 khoảng trống đã biết** |
@@ -114,6 +115,12 @@ flowchart TD
     LEARN["learn.md<br/>đã hỏng gì"]
     CL["changelog.md"]
 
+    DK["docker.md<br/>nền tảng Docker"]
+    WF["emu-gui-workflow.md<br/>toàn cảnh 3 giai đoạn"]
+    SEED["avd-seed.md<br/>phiên Google Play"]
+    DVP["deploy-vps.md<br/>từng lệnh trên VPS"]
+    PUB["public-access.md<br/>đường ra Internet"]
+
     REQ --> CTX --> ARC
     REQ --> PRO --> API
     ARC --> API & DB & ART & FS
@@ -129,9 +136,50 @@ flowchart TD
     ARC & API & TC & CI --> FEAT --> PLAN
     PLAN --> CL
 
+    ENV --> DK --> WF --> DVP --> PUB
+    DK --> SEED --> DVP
+    SEED --> CI
+    PUB --> SEC
+    DK --> RB
+
     classDef entry fill:#eef,stroke:#557,stroke-width:2px
+    classDef owner fill:#ffe,stroke:#a85,stroke-width:2px
     class REQ,PRO,RB entry
+    class DK,SEED owner
 ```
+
+Hai ô vàng là **file chủ**: `docker.md` giữ mọi sự thật về Docker/compose/volume,
+`avd-seed.md` giữ mọi sự thật về seed và worker image. File khác trỏ về, không
+chép lại — xem bảng dưới.
+
+---
+
+## Chủ sở hữu sự thật — mỗi thứ chỉ có MỘT chỗ để sửa
+
+Mảng deploy từng bị chép lại ở 7 file: `compose.kvm` xuất hiện ở 13 file,
+`COMPOSE_FILE` ở 12, `Docker Hub` ở 12. Hậu quả là đổi một cờ compose phải sửa
+mười chỗ, và thực tế là **quên** — biến `EMULATOR_SCREEN_OFF_TIMEOUT` thêm ngày
+2026-08-12 chỉ được ghi vào `changelog.md`.
+
+Từ giờ mỗi sự thật có đúng một chủ. Cần nhắc lại ở file khác thì **trỏ link**,
+không chép nội dung:
+
+| Sự thật | Chủ sở hữu |
+|---|---|
+| Khái niệm Docker · 7 image của dự án · tên/tag/registry | [docker.md §1–2, §8](docker.md) |
+| Ghép file compose · `COMPOSE_FILE` · dấu phân cách theo OS · profile | [docker.md §4](docker.md) |
+| Volume nào chứa gì · trong image vs trong volume · cờ `-v` | [docker.md §6](docker.md) |
+| `KVM_GID` lấy đúng cách · cạm bẫy đặc thù Docker | [docker.md §10](docker.md) |
+| Seed AVD · `--no-build` · vì sao CI không build worker | [avd-seed.md](avd-seed.md) |
+| Bảng biến môi trường · mặc định · biến nào throw lúc boot | [environment.md §2–3](environment.md) |
+| Triệu chứng → xử lý · cây chẩn đoán · backup/restore | [runbook.md](runbook.md) |
+| Đăng nhập Google Play qua noVNC (quy trình) | [deploy-vps.md §4](deploy-vps.md) |
+| Đường ra Internet · quick vs named · đổi `API_TOKEN` sau HTTP trần | [public-access.md](public-access.md) |
+| Đặc tả 23 endpoint · mã lỗi · selector | [api-design.md](api-design.md) |
+| Đổi code thì phải sửa doc nào | [checklist.md §5](checklist.md) |
+
+`deploy/README.md` chỉ giữ thứ **đặc thù máy dev này** (số cổng, `KVM_GID=991`,
+cấu hình đo được), không giữ kiến thức chung.
 
 ---
 

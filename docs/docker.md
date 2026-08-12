@@ -129,14 +129,30 @@ docker compose -f compose.yml -f compose.kvm.yaml -f compose.supabase.yaml \
   -f compose.tunnel.yaml --profile quick up -d
 ```
 
-Gõ chuỗi `-f` dài mỗi lần rất dễ sai. `bootstrap.sh` ghi sẵn vào `deploy/.env`:
+### `COMPOSE_FILE` — bỏ hẳn chuỗi `-f`
+
+Gõ chuỗi `-f` dài mỗi lần rất dễ sai. Docker Compose đọc hai biến này từ `.env`
+của thư mục project, và [bootstrap.sh](../deploy/bootstrap.sh) ghi sẵn chúng:
 
 ```bash
 COMPOSE_FILE=compose.yml:compose.kvm.yaml:compose.supabase.yaml:compose.prod.yaml
 COMPOSE_PROFILES=production
 ```
 
-Có hai dòng đó rồi thì chỉ cần `docker compose up -d`.
+Có hai dòng đó rồi thì đứng trong `deploy/` mà gõ `docker compose ps`, `logs`,
+`up -d` là **tự động** đúng bộ overlay và đúng profile. Máy không có KVM thì
+`compose.kvm.yaml` bị bỏ khỏi danh sách. Job ④ của CI cũng đọc đúng hai biến này
+— [không có cờ nào hardcode trong pipeline](CI-CD.md).
+
+> **Dấu phân cách theo hệ điều hành chạy docker CLI**, không theo container:
+> `;` khi gõ từ Windows, `:` khi gõ từ trong WSL/Linux. Đặt sai thì compose đi
+> tìm một file tên `compose.yml;compose.kvm.yaml` rồi chết ở `stat`, và thông báo
+> lỗi **không hề gợi ý gì** tới dấu phân cách.
+
+> Thêm một file vào `COMPOSE_FILE` mà **quên đặt profile** thì service của nó
+> không được kích hoạt — và `docker compose up -d --remove-orphans` sẽ coi
+> container đang chạy là orphan rồi **xoá nó**. Đây là cách mất tunnel âm thầm
+> hay gặp nhất ([public-access.md §2](public-access.md)).
 
 **`stop_grace_period: 120s` không phải cho đẹp.** Emulator ghi userdata 12 GB
 lúc tắt; mặc định Docker chờ 10 giây rồi SIGKILL — đủ để hỏng AVD.
@@ -173,10 +189,8 @@ cd /root/app-relay/deploy
 Script tự sinh secret, dựng Postgres, ghi `COMPOSE_FILE`, chạy migration, bật
 stack. Chi tiết: [deploy-vps.md](deploy-vps.md).
 
-> **`--no-build` không phải tuỳ chọn cho nhanh.** Bỏ nó ra thì VPS tự build
-> worker image, mà máy đích không có `avd-seed/` → image không seed → mất phiên
-> đăng nhập CH Play, cộng ~30 phút build. Để VPS **kéo** image có seed từ
-> Docker Hub.
+> **`--no-build` là bắt buộc, không phải tuỳ chọn cho nhanh** — bỏ nó ra là mất
+> phiên đăng nhập CH Play. Vì sao: [avd-seed.md §5](avd-seed.md).
 
 ### C. CI/CD — Docker Hub là đường giao hàng
 
@@ -190,24 +204,15 @@ Tag `<git sha>` là đường lùi khi bản mới hỏng:
 IMAGE_TAG=<sha-cũ> docker compose up -d
 ```
 
-> **Worker image không nằm trong pipeline.** Seed AVD 2.5 GB bị `.gitignore`
-> chặn, mà CI checkout từ git nên không bao giờ có file đó. Image CI tạo ra vẫn
-> chạy nhưng **mất phiên đăng nhập CH Play**, và triệu chứng chỉ là màn hình
-> đăng nhập hiện lên như máy mới. Nên job build worker đã **bị gỡ khỏi CI**.
->
-> Sửa code trong `apps/worker/` thì phải build và push tay từ máy giữ seed:
->
-> ```bash
-> docker compose build worker
-> docker push <user>/app-relay-worker:latest
-> ```
->
-> Rollback worker cũng không có tag `<sha>` — muốn lùi được thì tự gắn tag ngày
-> tháng lúc push.
+> **Chỉ image API nằm trong pipeline.** Worker image phải build và push tay từ
+> máy giữ `avd-seed/`, và rollback worker không có tag `<sha>`. Vì sao và làm thế
+> nào: [avd-seed.md §6](avd-seed.md).
 
 ---
 
 ## 6. Dữ liệu nằm ở đâu
+
+**Bảng chủ** — mọi file khác trỏ về đây thay vì chép lại.
 
 | Volume | Chứa | Mất thì sao |
 |---|---|---|
@@ -225,13 +230,23 @@ docker compose down -v   # ⛔ XOÁ SẠCH VOLUME
 **`-v` là cờ nguy hiểm nhất trong tài liệu này.** Không có xác nhận, không có
 thùng rác, không lùi lại được.
 
-Phân biệt cái gì nằm ở đâu:
+Ba nơi khác **không** phải volume, để khỏi nhầm:
 
-| Trong **image** (rebuild là có lại) | Trong **volume** (mất là mất thật) |
-|---|---|
-| JDK, Android SDK, system image | AVD đang chạy, phiên đăng nhập Google |
-| Code đã compile | Database |
-| Seed AVD (bản gốc) | Artifact chờ tải |
+| Thứ | Nằm ở đâu | Mất khi nào |
+|---|---|---|
+| JDK, Android SDK, emulator, system image | **trong image** | không bao giờ — build lại là có |
+| Node, code đã compile | **trong image** | không bao giờ |
+| Seed AVD (bản gốc) | **trong image** — `/opt/avd-seed/` | không bao giờ |
+| File compose, Caddyfile, migration | **trên đĩa máy đích**, bind-mount | `rm -rf` thư mục |
+| Secret (`.env*`) | **trên đĩa máy đích**, gitignore | xoá file |
+
+Hai hệ quả đáng nhớ:
+
+- **Đăng nhập CH Play chỉ làm một lần.** Restart container, build lại image,
+  deploy phiên bản mới — đều không mất, vì phiên nằm ở volume chứ không ở image.
+  Chi tiết: [avd-seed.md](avd-seed.md).
+- **File cấu hình cố ý không nằm trong image.** Sửa một dòng `Caddyfile` mà phải
+  build lại 13 GB thì không ai chịu nổi.
 
 ---
 
@@ -366,18 +381,19 @@ phút, và mọi thứ của project khác trên cùng máy.
 
 ## 10. Sáu cạm bẫy đã gặp thật
 
+Đây là các cạm bẫy **đặc thù Docker**. Sự cố ứng dụng (API crash-loop, job kẹt,
+emulator không boot, mất phiên Play) nằm ở [runbook.md](runbook.md).
+
 | Triệu chứng | Nguyên nhân | Xử lý |
 |---|---|---|
-| API `unhealthy` mãi, worker không bao giờ start | Healthcheck dùng `localhost` → resolve `::1`, mà server chỉ bind IPv4 | Dùng `127.0.0.1` trong healthcheck |
 | Emulator chạy nhưng chậm bất thường | Thiếu `compose.kvm.yaml`, hoặc `KVM_GID` sai | `docker exec deploy-worker-1 kvm-ok`. Lấy gid đúng: `docker run --rm --privileged alpine stat -c %g /dev/kvm` — xem dòng dưới bảng |
-| `docker compose` chết ở `stat compose.yml;compose.kvm.yaml: no such file` | Dấu phân cách `COMPOSE_FILE` sai hệ điều hành | `;` khi gõ từ Windows, `:` khi gõ từ WSL/Linux |
-| Emulator chết ngay: `Running multiple emulators with the same AVD` | File khoá mồ côi sau khi container bị kill cứng | Xác nhận `pgrep -a qemu-system` rỗng rồi xoá `chpay.avd/hardware-qemu.ini.lock` và `multiinstance.lock` |
+| `docker compose` chết ở `stat compose.yml;compose.kvm.yaml: no such file` | Dấu phân cách `COMPOSE_FILE` sai hệ điều hành | `;` khi gõ từ Windows, `:` khi gõ từ WSL/Linux — §4 |
 | Trình duyệt `ERR_CONNECTION_REFUSED` mà `curl` vẫn chạy | Trình duyệt phân giải `localhost` → `::1`, cổng chỉ bind IPv4 | Gõ `127.0.0.1` thay vì `localhost` |
 | `docker push` xong mới biết repo đang public | Docker Hub tự tạo repo public khi repo chưa tồn tại | Tạo repo Private thủ công trước khi push — xem §8 |
 | Worker online nhưng không nhận job | `WORKER_TOKEN` ở `.env.api` và `.env.worker` lệch nhau | Sửa cho trùng tuyệt đối |
-| Deploy máy mới, CH Play hỏi đăng nhập lại | Build ở máy đích (quên `--no-build`), mà `avd-seed/` bị gitignore nên máy đó không có seed | Build ở máy giữ seed rồi `push`; VPS chỉ `pull` |
-| `pull access denied` lúc deploy | Repo Docker Hub để private (bắt buộc, vì worker image chứa credential Google) mà VPS chưa `docker login` | `docker login` trên VPS; job ④ đã tự làm bước này |
-| Sửa code worker xong, deploy xanh mà VPS không đổi gì | CI **không** build worker image nữa | Build tay ở máy giữ seed rồi `docker push` |
+| Deploy máy mới, CH Play hỏi đăng nhập lại | Image không có seed — thường là quên `--no-build` | [avd-seed.md §7](avd-seed.md) |
+| `pull access denied` lúc deploy | Repo private (bắt buộc) mà máy đích chưa `docker login` | [avd-seed.md §7](avd-seed.md) |
+| Sửa code worker xong, deploy xanh mà VPS không đổi gì | CI **không** build worker image | [avd-seed.md §6](avd-seed.md) |
 | Xoá một file compose khỏi repo, VPS vẫn còn | `scp` chỉ ghi đè, không xoá — khác `git reset --hard` trước đây | Xoá tay trên máy đích |
 | `address already in use` cổng 5500 | Bật `compose.http.yaml` cùng lúc với Caddy | Chọn một |
 | Artifact ghi lỗi `EACCES` | Volume cũ từ thời chạy root, không được chown lại | `docker compose run --rm --user root api chown -R 10001:10001 /data/artifacts` |

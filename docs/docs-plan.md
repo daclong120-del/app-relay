@@ -16,9 +16,10 @@ Requirements → Design/Architect → Develop → Test → Deploy → Vận hàn
 | B2 | [api-prototype.md](api-prototype.md) · [context.md](context.md) · [system-prompt.md](system-prompt.md) | Dùng thế nào, ranh giới ở đâu, AI cư xử sao |
 | B3 | [kick-start.md](kick-start.md) | Từ máy trắng tới stack chạy được |
 | B4 | [architecture.md](architecture.md) · [folder-struc.md](folder-struc.md) · [api-design.md](api-design.md) · [database-design.md](database-design.md) · [artifact-design.md](artifact-design.md) · [environment.md](environment.md) · [runbook.md](runbook.md) · [rule.md](rule.md) | Bên trong chia thế nào |
-| B5 | [plan.md](plan.md) · [learn.md](learn.md) · [changelog.md](changelog.md) · [checklist.md](checklist.md) | Làm gì tiếp, đã hỏng gì, đổi gì |
+| B5 | [features.md](features.md) · [plan.md](plan.md) · [learn.md](learn.md) · [changelog.md](changelog.md) · [checklist.md](checklist.md) | Đang có gì, làm gì tiếp, đã hỏng gì, đổi gì |
 | B6 | mục §5 trong [checklist.md](checklist.md) | Đổi code thì sửa doc nào |
-| B7 | [test-case.md](test-case.md) · [CI-CD.md](CI-CD.md) · [security.md](security.md) | Kiểm thế nào, deploy thế nào, an toàn chưa |
+| B7 | [test-case.md](test-case.md) · [CI-CD.md](CI-CD.md) · [security.md](security.md) | Kiểm thế nào, an toàn chưa |
+| B7-deploy | [docker.md](docker.md) · [emu-gui-workflow.md](emu-gui-workflow.md) · [avd-seed.md](avd-seed.md) · [deploy-vps.md](deploy-vps.md) · [public-access.md](public-access.md) | Đóng gói thế nào, lên máy đích thế nào, ra Internet thế nào |
 
 Mỗi file theo cùng một format: **mục đích → nội dung → sơ đồ Mermaid**.
 
@@ -97,6 +98,22 @@ Thêm file mới vào `docs/` thì phải làm ba việc:
 1. Thêm một dòng vào bảng phân loại B1→B7 ở §1 trên.
 2. Thêm vào [README.md](README.md) — cả bảng "đọc gì trước" lẫn bảng toàn bộ tài liệu.
 3. Nối vào sơ đồ quan hệ trong README.
+
+> Ba việc này **đã từng bị bỏ**: năm file deploy (`docker.md`,
+> `emu-gui-workflow.md`, `deploy-vps.md`, `public-access.md`, `features.md`) nằm
+> ngoài bảng §1 và ngoài sơ đồ suốt hai ngày. Đã vá 2026-08-12.
+
+### Một sự thật, một chủ sở hữu
+
+Trước khi viết một đoạn, kiểm bảng **chủ sở hữu sự thật** trong
+[README.md](README.md). Nếu thứ định viết đã có chủ thì **trỏ link**, không chép
+lại — kể cả khi chép chỉ mất ba dòng.
+
+Vì sao: chép ba dòng vào file thứ tư nghĩa là lần sau đổi cờ compose phải sửa bốn
+chỗ, và thực tế đã chứng minh là sẽ quên — biến `EMULATOR_SCREEN_OFF_TIMEOUT`
+thêm ngày 2026-08-12 chỉ được ghi vào `changelog.md`, thiếu ở
+[environment.md](environment.md) và ở `.env.worker.example`. Doc chép lại không
+sai lúc viết — nó sai **sáu tuần sau**, và lúc đó không ai biết bản nào mới.
 
 Nguyên tắc bao trùm: **doc sai nguy hiểm hơn doc thiếu, vì AI tin doc.** Bằng chứng là mục #1 ở §4 — tài liệu hứa một bộ test không tồn tại, và ai đọc cũng tin.
 

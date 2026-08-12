@@ -81,7 +81,9 @@ Container dừng, API không phản hồi, nhưng không có log lỗi nào. Tro
 systemd[1]: Reached target poweroff.target - System Power Off
 ```
 
-**Nguyên nhân** — WSL2 thu hồi distro khi không còn tiến trình nào từ phía Windows giữ nó sống. systemd nhận lệnh tắt máy thật, Docker daemon tắt theo.
+**Nguyên nhân** — WSL2 thu hồi distro khi không còn tiến trình nào từ phía Windows giữ nó sống. systemd nhận lệnh tắt máy thật, Docker daemon tắt theo. Container chết dù có `restart: unless-stopped`, và `wsl -l -v` báo distro `Stopped`.
+
+> **Chỉ xảy ra khi engine là docker cài trong một distro WSL. Docker Desktop không dính chuyện này.** Distro `Ubuntu-24.04` dùng trong các lệnh dưới đây đã bị xoá ngày 2026-08-12 — thay bằng tên distro thật đang dùng, xem [`../deploy/README.md` §8](../deploy/README.md).
 
 **Xử lý** — từ PowerShell trên Windows:
 
@@ -156,6 +158,15 @@ Caddy không xin được cert thì kiểm: cổng 80/443 mở chưa, `DOMAIN` t
 
 **Nguyên nhân thường gặp nhất**: bị SIGTERM giữa chừng (WSL thu hồi distro, `docker stop` quá hạn) để lại lock trong AVD. Lần khởi động sau emulator tưởng đã có instance khác nên thoát ngay.
 
+**Xác nhận không còn tiến trình emulator nào trước khi xoá lock** — xoá lock khi
+qemu vẫn chạy thì đúng là hai instance trên một AVD, và AVD hỏng thật:
+
+```bash
+$C exec worker bash -c 'pgrep -a qemu-system || echo KHONG-CO'   # phải ra KHONG-CO
+```
+
+Rỗng rồi mới xoá:
+
 ```bash
 $C exec worker bash -c '
   rm -f /home/worker/.android/avd/chpay.avd/multiinstance.lock \
@@ -164,6 +175,10 @@ $C exec worker bash -c '
 '
 $C restart worker
 ```
+
+Ba file đó được sinh lại lúc emulator chạy, nên xoá khi không có tiến trình nào là
+an toàn. `compose.prod.yaml` đặt `stop_grace_period: 120s` chính là để dừng sạch,
+khỏi sinh ra khoá mồ côi ngay từ đầu.
 
 > **Không đụng `userdata-qemu.img*`.** Phiên đăng nhập Google nằm trong đấy — xoá là mất, phải đăng nhập lại tay.
 
@@ -198,13 +213,21 @@ $C exec -T worker /opt/android-sdk/platform-tools/adb shell dumpsys account | gr
 **Xử lý** — bước thủ công, không tự động hoá được:
 
 ```bash
-# VPS: mở tunnel từ máy cá nhân
-ssh -L 6080:127.0.0.1:6080 ubuntu@<IP_VPS>
+./gui.sh on                              # noVNC chỉ sống khi WORKER_GUI=on
+ssh -N -L 6080:127.0.0.1:6080 <user>@<IP_VPS>
 ```
 
-Mở `http://localhost:6080/vnc.html` → thấy desktop Openbox có cửa sổ emulator → mở Play Store → đăng nhập.
+Mở `http://localhost:6080/vnc.html?autoconnect=true&resize=scale` → mở Play Store
+trong emulator → đăng nhập → `./gui.sh off`.
+
+> **Phải có `autoconnect=true`.** Mở `vnc.html` trần thì noVNC dừng ở màn hình chờ
+> chờ bấm Connect, và trông y như chưa có emulator nào chạy.
 
 Sau đó có thể đóng trình duyệt và ngắt SSH; emulator vẫn chạy, phiên nằm trong volume `worker-avd`.
+
+Chi tiết quy trình và những gì nhìn thấy trên màn hình: [deploy-vps.md §4](deploy-vps.md).
+Vì sao phiên sống sót qua deploy, và cách khỏi phải làm lại ở máy sau:
+[avd-seed.md](avd-seed.md).
 
 ---
 

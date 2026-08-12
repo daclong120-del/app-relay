@@ -108,38 +108,22 @@ grep '^WORKER_TOKEN=' .env.api
 # copy đúng giá trị đó sang .env.worker
 ```
 
-### Bổ sung biến còn thiếu trong `.env.api`
+### Biến tuỳ chọn
 
-`.env.api.example` hiện **thiếu** năm biến mà code có đọc. Không có chúng thì mọi thứ chạy bằng mặc định ngầm, và người vận hành không biết chúng tồn tại:
-
-```bash
-cat >> .env.api <<'EOF'
-
-# APK chiếm ~98% dung lượng nên hết hạn sớm hơn hẳn phần còn lại.
-APK_TTL_HOURS=6
-
-# Dưới ngưỡng này thì đuổi artifact cũ và ngừng giao job mới cho worker.
-ARTIFACT_MIN_FREE_BYTES=10737418240
-
-# Thư mục upload dở dang phải "nguội" bao lâu mới bị coi là mồ côi.
-ORPHAN_DIR_MIN_AGE_MINUTES=120
-
-# Ân hạn trước khi xoá APK sau khi client tải xong, để còn cửa tải lại.
-DELETE_AFTER_DOWNLOAD_GRACE_MINUTES=10
-
-# Job im lặng quá lâu mà claim_job() không lấy lại được thì reaper dọn.
-# Phải cao hơn hẳn lease 120s để không cướp job còn sống.
-STUCK_JOB_GRACE_MINUTES=15
-EOF
-```
-
-Kiểm lại `ARTIFACT_TTL_HOURS`: file example ghi `48`, tài liệu thiết kế chốt `720`. Chọn một con số và đảm bảo `.env.api` với [environment.md](environment.md) khớp nhau.
+`.env.api.example` đã có đủ mọi biến code đọc, kèm ghi chú ý nghĩa — **không cần
+bổ sung tay nữa** (trước đây nó thiếu 5 biến TTL/ngưỡng; đã vá, xem
+[environment.md §6](environment.md)). Bảng đầy đủ biến, mặc định và biến nào
+throw lúc boot: [environment.md §2](environment.md).
 
 ### KVM group ID
 
 ```bash
-echo "KVM_GID=$(getent group kvm | cut -d: -f3)" >> .env
+echo "KVM_GID=$(docker run --rm --privileged alpine stat -c %g /dev/kvm)" >> .env
 ```
+
+> Phải hỏi **docker engine**, không phải host. `getent group kvm` trên host trả
+> về số của host — đặt sai thì emulator **âm thầm** tụt về chạy phần mềm. Xem
+> [docker.md §10](docker.md).
 
 ### Chọn Supabase
 
@@ -232,17 +216,20 @@ Worker chờ API `healthy` mới khởi động (`depends_on: service_healthy`),
 Không tự động hoá được, và là thứ dễ mất nhất trong toàn hệ thống.
 
 ```bash
-# Trên VPS: mở tunnel từ máy cá nhân
-ssh -L 6080:127.0.0.1:6080 ubuntu@<IP_VPS>
+# Máy dev (Docker Desktop / WSL): mở thẳng, không cần tunnel
+http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale
 
-# Trên WSL/máy cá nhân: mở thẳng
+# Máy ở xa: đi qua SSH tunnel trước
+ssh -N -L 6080:127.0.0.1:6080 <user>@<IP_VPS>
 ```
 
-Mở `http://localhost:6080/vnc.html` → thấy desktop Openbox có cửa sổ Android Emulator → mở Play Store trong emulator → đăng nhập tài khoản Google.
+Mở Play Store trong emulator → đăng nhập tài khoản Google. Xong thì đóng trình duyệt được; phiên nằm trong volume `worker-avd`.
 
-Xong rồi có thể đóng trình duyệt và ngắt SSH tunnel; emulator và worker vẫn chạy. Phiên đăng nhập nằm trong volume `worker-avd`.
+Quy trình đầy đủ, những gì nhìn thấy trên màn hình, và vì sao **phải** có `autoconnect=true`: [deploy-vps.md §4](deploy-vps.md).
 
 > **Tuyệt đối không chạy `docker compose down -v`.** Cờ `-v` xoá volume, mất luôn AVD và phiên Play Store. Dừng thì dùng `stop`, xoá container thì dùng `down` không kèm `-v`.
+
+Muốn máy sau khỏi phải đăng nhập lại: chụp seed AVD — [avd-seed.md](avd-seed.md).
 
 ---
 
@@ -318,7 +305,7 @@ flowchart TD
     KO --> C
 
     C --> I["pnpm install --frozen-lockfile<br/>pnpm build + typecheck"]
-    I --> E["cp .env.*.example<br/>sinh token bằng openssl<br/>bổ sung 5 biến thiếu<br/>KVM_GID"]
+    I --> E["cp .env.*.example<br/>sinh token bằng openssl<br/>KVM_GID (hỏi docker engine)"]
 
     E --> SB{"Supabase?"}
     SB -->|"Cloud"| M["chạy db-migrate.ts --apply<br/>+ notify pgrst"]

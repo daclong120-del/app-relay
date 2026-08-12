@@ -1,7 +1,8 @@
 # Vận hành AppRelay trên máy dev (Docker Desktop / Windows)
 
-Tài liệu thao tác hằng ngày **cho máy dev này**. Phần kiến trúc và lý do thiết
-kế nằm ở [`../new_setup/vps_deploy.md`](../new_setup/vps_deploy.md).
+Tài liệu thao tác hằng ngày **cho máy dev này** — chỉ chứa thứ đặc thù của máy
+này. Phần nền tảng và lý do thiết kế nằm ở [`../docs/docker.md`](../docs/docker.md)
+(khái niệm, compose, volume) và [`../docs/architecture.md`](../docs/architecture.md).
 
 > **Deploy lên VPS thì đọc [`../docs/deploy-vps.md`](../docs/deploy-vps.md)**, không
 > phải file này. Đường đó tự chứa: một lệnh `./bootstrap.sh` lo từ sinh secret,
@@ -21,12 +22,9 @@ cd d:/super-tools/app-relay/deploy
 ```
 
 `deploy/.env` đã có sẵn `COMPOSE_FILE=compose.yml;compose.kvm.yaml`, nên **không
-cần cờ `-f`** — cứ `docker compose ...` là đúng bộ overlay.
-
-> **Dấu phân cách trong `COMPOSE_FILE` theo hệ điều hành chạy docker CLI**, không
-> theo container: `;` khi gọi từ Windows, `:` khi gọi từ trong WSL/Linux. Đặt sai
-> thì compose đi tìm một file tên `compose.yml;compose.kvm.yaml` rồi chết ở
-> `stat`, thông báo lỗi không hề gợi ý gì tới dấu phân cách.
+cần cờ `-f`** — cứ `docker compose ...` là đúng bộ overlay. Dấu ở đây là `;` vì
+docker CLI gọi từ Windows; luật đầy đủ ở
+[`../docs/docker.md` §4](../docs/docker.md).
 
 ---
 
@@ -56,15 +54,15 @@ publish thẳng ra `127.0.0.1` của Windows nên mở trên trình duyệt là 
 http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale
 ```
 
-Dùng bản có `autoconnect=true`. Nếu mở `vnc.html` trần, noVNC dừng ở màn hình
-chờ và **phải bấm nút Connect** — không bấm thì không có phiên nào được mở và
-màn hình trông như chưa có emulator nào chạy.
+Dùng bản có `autoconnect=true` — mở `vnc.html` trần thì noVNC dừng ở màn hình chờ
+bấm Connect. Cái nhìn thấy được và cách đăng nhập Play Store:
+[`../docs/deploy-vps.md` §4](../docs/deploy-vps.md).
+
+Khác biệt duy nhất của máy này: **không cần SSH tunnel** — Docker Desktop publish
+thẳng ra `127.0.0.1` của Windows.
 
 Cổng 6080 chỉ có người nghe khi `WORKER_GUI=on`. Đang để `off` thì trang này bị
 **từ chối kết nối** — đó là đúng, không phải hỏng; xem mục 6.
-
-Desktop ảo là 1080x1920, cửa sổ emulator khoảng 413x939 nằm góc trên-trái. Thấy
-khung emulator nhỏ trên nền desktop xám là đúng, không phải lỗi.
 
 ---
 
@@ -167,22 +165,11 @@ curl -s -X POST -H "Authorization: Bearer $API_TOKEN" \
   http://localhost:5500/v1/jobs/<jobId>/artifact/download-url
 ```
 
-Endpoint public đầy đủ:
-
-| Method | Path |
-|---|---|
-| GET | `/v1/health` (không auth) |
-| GET | `/v1/system/status` |
-| POST | `/v1/jobs` · `/v1/jobs/batch` |
-| GET | `/v1/jobs` · `/v1/jobs/:jobId` · `/v1/jobs/:jobId/events` |
-| POST | `/v1/jobs/:jobId/cancel` · `/v1/jobs/:jobId/retry` |
-| POST | `/v1/jobs/:jobId/artifact/download-url` |
-| GET | `/v1/apps` · `/v1/apps/:packageId` |
-| GET | `/v1/artifacts/:artifactId/download` (xác thực bằng chữ ký trên URL) |
-
 `/internal/v1/*` dành riêng cho worker, dùng `WORKER_TOKEN`, không gọi từ ngoài.
 
-Đặc tả chi tiết: [`../new_setup/api-endpoint.md`](../new_setup/api-endpoint.md).
+Danh sách đầy đủ 23 endpoint, mã lỗi và selector:
+[`../docs/api-design.md`](../docs/api-design.md). Kịch bản gọi thật:
+[`../docs/api-prototype.md`](../docs/api-prototype.md).
 
 ---
 
@@ -198,21 +185,12 @@ Ba điểm dễ sai:
 
 - `WORKER_TOKEN` trong `.env.api` và `.env.worker` **phải trùng nhau tuyệt đối**,
   nếu lệch thì worker nhận 403 và không bao giờ nhận job.
-- `COMPOSE_FILE` dùng `;` khi gõ lệnh từ Windows, `:` khi gõ từ trong WSL/Linux.
-  Xem cảnh báo ở đầu file.
-- **`KVM_GID` là gid của `/dev/kvm` trong VM chạy docker engine, KHÔNG phải gid
-  trên host.** Đây là chỗ sai kinh điển: `getent group kvm` trên Windows không có
-  nghĩa gì, còn chạy nó trong một distro WSL khác sẽ ra số của distro đó. Lấy
-  đúng số bằng cách hỏi thẳng engine đang dùng:
-
-  ```bash
-  docker run --rm --privileged alpine stat -c %g /dev/kvm
-  ```
-
-  Trên Docker Desktop của máy này ra **991**. Mặc định trong `compose.kvm.yaml`
-  là 108 (hợp với Ubuntu server thường). Sai gid thì container không mở được
-  `/dev/kvm` và emulator **âm thầm** tụt về chạy phần mềm — không có lỗi nào báo
-  ra, chỉ là chậm gấp hàng chục lần.
+- `COMPOSE_FILE` dùng `;` khi gõ lệnh từ Windows — xem đầu file.
+- **`KVM_GID` trên máy này là `991`.** Đó là gid của `/dev/kvm` **trong VM của
+  Docker Desktop**, không phải trên host — lấy bằng
+  `docker run --rm --privileged alpine stat -c %g /dev/kvm`, tuyệt đối không phải
+  `getent group kvm`. Vì sao hỏi sai máy là sai, và vì sao sai thì **im lặng**:
+  [`../docs/docker.md` §10](../docs/docker.md).
 
 `EMULATOR_ACCEL` không đặt trong `.env.worker`; `compose.kvm.yaml` đã set `"on"`.
 
@@ -220,13 +198,9 @@ Ba điểm dễ sai:
 
 ## 5. Dữ liệu và cảnh báo xóa
 
-| Dữ liệu | Vị trí |
-|---|---|
-| AVD `chpay` + phiên đăng nhập Google Play | volume `worker-avd` |
-| APK worker đang xử lý | volume `worker-work` |
-| ZIP chờ tải về | volume `api-artifacts` |
-| Job metadata | Supabase (project `ftpimnpjjmdumfjchegl`) |
-| JDK, Android SDK, system image | nằm trong worker image (~8 GB) |
+Bảng chủ "thứ gì trong image, thứ gì trong volume, mất khi nào":
+[`../docs/docker.md` §6](../docs/docker.md). Riêng máy này: job metadata nằm trên
+Supabase project `ftpimnpjjmdumfjchegl`, không phải Postgres self-host.
 
 ```bash
 # TUYỆT ĐỐI KHÔNG chạy — cờ -v xóa volume, mất AVD và phiên đăng nhập CH Play
@@ -235,94 +209,40 @@ docker compose ... down -v
 
 `docker compose down` (không có `-v`) thì an toàn: volume giữ nguyên.
 
-Đăng nhập CH Play chỉ cần làm **một lần**. Sau đó đóng trình duyệt, restart
-container đều được, tài khoản vẫn còn trong `worker-avd`.
-
 ### Mang phiên đăng nhập sang máy khác (seed AVD)
 
-Volume `worker-avd` không đi theo image, nên deploy sang máy mới mặc định là
-phải đăng nhập CH Play lại. Muốn khỏi: chụp AVD đã đăng nhập thành *seed* rồi
-nướng vào image.
+**Máy này là máy giữ `avd-seed/`** — nó là nơi duy nhất build được worker image
+có phiên đăng nhập CH Play. Mọi máy khác chỉ `pull`.
 
 ```bash
-# Trên máy ĐÃ đăng nhập. Script tự tắt emulator sạch rồi bật lại.
-./capture-avd-seed.sh          # → avd-seed/avd-seed.tar.gz (~2.5 GB)
-
+./capture-avd-seed.sh          # chụp seed từ AVD đã đăng nhập
 docker compose build worker    # nướng seed vào image
-docker compose push worker     # registry PHẢI để private, xem cảnh báo dưới
+docker compose push worker     # repo PHẢI private — image chứa credential Google
 ```
 
-Máy mới chỉ cần `docker compose pull` rồi `up -d`: `create-avd.sh` thấy seed thì
-bung ra thay vì tạo AVD trắng, Play Store vào thẳng không hỏi mật khẩu.
+Toàn bộ cơ chế seed — cách chụp, vì sao `--no-build` là bắt buộc ở máy đích, vì
+sao CI không build worker, bốn chế độ hỏng, và ba điều dễ mất tiền — nằm ở
+[`../docs/avd-seed.md`](../docs/avd-seed.md).
 
-> **TUYỆT ĐỐI KHÔNG `docker compose build` ở máy đích.** `avd-seed/` bị
-> `.gitignore` chặn (2.5 GB, chứa credential Google), và máy đích chỉ nhận
-> `deploy/` + `supabase/migrations/` qua `scp` — không có seed ở đó. Build ở đó
-> ra image **không có seed**, `create-avd.sh` rơi về nhánh tạo AVD trắng, và bạn
-> phải đăng nhập CH Play lại — không có lỗi nào báo ra, chỉ là màn hình đăng
-> nhập hiện lên như máy mới tinh.
->
-> Vì vậy `bootstrap.sh` trên VPS phải chạy kèm **`--no-build`**.
->
-> Hệ quả: worker image **phải** build từ máy đang giữ seed, rồi `push`. Đây cũng
-> là lý do job build worker đã **bị gỡ hẳn khỏi CI** — CI checkout từ git nên
-> không bao giờ có file đó, và đẩy lên `latest` là ghi đè mất bản dùng thật.
-
-| | |
-|---|---|
-| Không muốn dùng seed, tạo AVD trắng | `AVD_SEED_DISABLE=1` trong `.env.worker` |
-| Đổi tài khoản | Đăng nhập lại qua noVNC → chạy lại `capture-avd-seed.sh` → build lại |
-| Seed nằm ở đâu trong image | `/opt/avd-seed/avd-seed.tar.gz` |
-
-**Ba điều dễ mất tiền:**
-
-1. **Image chứa thông tin đăng nhập Google.** Ai `docker pull` được là vào được
-   tài khoản. Repo Docker Hub phải private. `.gitignore` đã chặn seed khỏi git.
-2. **Không chạy hai bản clone cùng lúc.** Clone giữ nguyên `android_id` và GSF
-   ID → Google coi là *một* thiết bị ở hai nơi, huỷ phiên một bên rồi bắt xác
-   minh lại. Seed để **chuyển máy**, không phải để nhân bản đội worker; nhiều
-   worker thì mỗi con một tài khoản và một seed riêng.
-3. **Không phải vĩnh viễn.** Token vẫn bị Google thử thách lại sau vài tuần đến
-   vài tháng, nhanh hơn nếu đổi IP sang quốc gia khác. Giữ `WORKER_GUI=on` để
-   còn đường vào noVNC xử lý tay khi bị hỏi.
-
-Đã kiểm chứng end-to-end trên volume trắng: Android boot sau ~385s, tài khoản
-và `android_id` giữ nguyên, `sdcard.img` dựng lại đúng 2.0 GB. Thư mục AVD ở máy
-mới còn **4.9 GB** thay vì 15 GB như trước, nhờ bỏ `-c` và không mang sdcard
-theo seed.
-
-Kích thước seed 2.4 GB gần như toàn bộ là `userdata-qemu.img.qcow2`. Android
-mã hoá partition đó (FBE) nên dữ liệu đã ngẫu nhiên — nén thêm không ăn (đo
-thật: 300 MB → 310 MB, gzip làm *phình*). Đừng mất thời gian tối ưu chỗ này.
-
-Ảnh hưởng lên kích thước image worker, đo sau khi build thật:
-
-| | Trước | Sau |
-|---|---|---|
-| Phải push/pull qua registry | 2.97 GB | **5.51 GB** |
-| Chiếm trên đĩa máy local | 7.95 GB | 13 GB |
-
-Hai con số chênh nhau vì containerd giữ cả blob nén lẫn bản đã bung. Cái quyết
-định thời gian `push`/`pull` là dòng trên, không phải `docker images` cột đầu.
+> Đừng xoá `avd-seed/avd-seed.tar.gz` trên ổ D khi dọn dẹp. Nó bị `.gitignore`
+> chặn nên **không có bản nào trên git**, và là lớp dự phòng cuối cùng nếu
+> Docker Desktop mất volume — xem mục 7.
 
 ---
 
 ## 6. Xử lý sự cố
 
-**Emulator chết ngay khi khởi động: `Running multiple emulators with the same
-AVD is an experimental feature`.** Không phải có hai emulator thật. Đây là **file
-khoá còn sót** từ lần container bị kill cứng (máy sập, WSL tự tắt, `docker kill`,
-watchtower restart). Kiểm tra chắc chắn không còn tiến trình nào rồi xoá khoá:
+> Chỉ những thứ **đặc thù máy này**. Bảng sự cố đầy đủ và cây chẩn đoán:
+> [`../docs/runbook.md`](../docs/runbook.md). Cạm bẫy Docker:
+> [`../docs/docker.md` §10](../docs/docker.md).
 
-```bash
-docker exec deploy-worker-1 bash -c 'pgrep -a qemu-system || echo KHONG-CO'
-docker exec deploy-worker-1 bash -c 'rm -f /home/worker/.android/avd/chpay.avd/hardware-qemu.ini.lock /home/worker/.android/avd/chpay.avd/multiinstance.lock'
-docker compose restart worker
-```
-
-Hai file đó được sinh lại lúc emulator chạy, xoá khi không có tiến trình nào là
-an toàn. Đây là lý do `compose.prod.yaml` đặt `stop_grace_period: 120s` — dừng
-sạch thì không sinh ra khoá mồ côi.
+**Emulator chết ngay: `Running multiple emulators with the same AVD`.** Không phải
+có hai emulator thật — là **file khoá còn sót** sau lần container bị kill cứng
+(máy sập, WSL tự tắt, `docker kill`, watchtower restart). Cách xoá lock an toàn,
+kèm cảnh báo không được đụng `userdata-qemu.img*`:
+[`../docs/runbook.md` §6](../docs/runbook.md). Đây cũng là lý do
+`compose.prod.yaml` đặt `stop_grace_period: 120s` — dừng sạch thì không sinh ra
+khoá mồ côi.
 
 **Mở `127.0.0.1:6080` bị từ chối kết nối.** Hai khả năng, phân biệt bằng
 `WORKER_GUI`:
@@ -344,14 +264,10 @@ docker exec deploy-worker-1 bash -c 'grep -c "Got connection" /tmp/x11vnc-stderr
 Ra `0` nghĩa là trình duyệt chưa từng kết nối — dùng URL có `autoconnect=true`.
 Nếu đã có kết nối mà vẫn đen hình thì mới xét tới X/emulator.
 
-**API `unhealthy` mãi.** Healthcheck phải trỏ `http://127.0.0.1:5500`, không được
-dùng `localhost`: trong container `localhost` resolve `::1` trước, còn server chỉ
-bind IPv4 `0.0.0.0`, nên probe nhận `ECONNREFUSED` vĩnh viễn và worker kẹt ở
-`depends_on`.
-
-**API crash-loop `native WebSocket not found`.** `@supabase/supabase-js` từ
-2.112 trở lên cần Node 22+. `apps/api/Dockerfile` phải là `node:22-alpine`, dùng
-`node:20-alpine` sẽ chết ngay lúc `createClient()`.
+**API `unhealthy` mãi** hoặc **API crash-loop.** Ba nguyên nhân hay gặp
+(healthcheck dùng `localhost` → `::1`; image chạy Node 20 mà `supabase-js` cần
+Node 22; thiếu biến bắt buộc trong `.env.api`) đều ở
+[`../docs/runbook.md` §4](../docs/runbook.md).
 
 **Build worker fail ở bước verify `ldd`.** Emulator đóng gói sẵn Qt6, protobuf,
 abseil trong `emulator/lib64` và chỉ resolve lúc chạy qua `LD_LIBRARY_PATH`, nên
@@ -365,16 +281,12 @@ docker exec deploy-worker-1 kvm-ok
 docker exec deploy-worker-1 bash -c 'pgrep -a qemu-system' | grep -o '\-accel [a-z]*'
 ```
 
-Phải ra `KVM acceleration can be used` và `-accel on`. Nếu không, kiểm tra
-`KVM_GID` (mục 4 — lấy bằng `docker run --rm --privileged alpine stat -c %g
-/dev/kvm`, **không** phải `getent group kvm` trên host) và chắc chắn
-`compose.kvm.yaml` có trong `COMPOSE_FILE`.
+Phải ra `KVM acceleration can be used` và `-accel on`. Nếu không thì `KVM_GID`
+sai (mục 4) hoặc `compose.kvm.yaml` không có trong `COMPOSE_FILE`.
 
-**Container biến mất sau khi máy nghỉ một lúc.** Nếu engine là docker cài trong
-một distro WSL (không phải Docker Desktop), WSL2 tự tắt distro khi không còn
-phiên nào mở — container chết theo dù `restart: unless-stopped`. Triệu chứng:
-mọi cổng đột nhiên `ERR_CONNECTION_REFUSED`, và `wsl -l -v` báo distro `Stopped`.
-Docker Desktop không dính chuyện này.
+**Container biến mất sau khi máy nghỉ một lúc.** Chỉ xảy ra nếu engine là docker
+cài trong một distro WSL — **Docker Desktop không dính chuyện này**. Triệu chứng
+và cách giữ distro sống: [`../docs/runbook.md` §3](../docs/runbook.md).
 
 **Worker online nhưng không nhận job.** So `WORKER_TOKEN` giữa `.env.api` và
 `.env.worker`, rồi xem `docker exec deploy-worker-1 bash -c 'tail -50 /tmp/worker-node-stdout*.log'`.

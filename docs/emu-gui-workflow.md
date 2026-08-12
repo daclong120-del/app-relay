@@ -134,30 +134,20 @@ Chi tiết 4 job và các khoảng trống đã biết: [CI-CD.md](CI-CD.md).
 
 ## 3. Cái gì nằm trong image, cái gì nằm ngoài
 
-Chỗ này hay nhầm nhất khi nói "đóng gói emulator vào Docker".
+Chỗ này hay nhầm nhất khi nói "đóng gói emulator vào Docker". Bảng đầy đủ — thứ
+gì trong image, thứ gì trong volume, mất khi nào — là **bảng chủ ở
+[docker.md §6](docker.md)**.
 
-| Thứ | Nằm ở đâu | Mất khi nào |
-|---|---|---|
-| JDK, Android SDK, emulator, system image | **trong image** | không bao giờ — build lại là có |
-| Node, pnpm, code đã compile | **trong image** | không bao giờ |
-| AVD `chpay` (máy ảo cụ thể) | volume `worker-avd` | `docker compose down -v` |
-| **Phiên đăng nhập Google Play** | volume `worker-avd` | `docker compose down -v` |
-| APK worker đang xử lý | volume `worker-work` | `down -v` |
-| ZIP chờ tải về | volume `api-artifacts` | `down -v` |
-| Database (Postgres self-host) | volume `supabase-db` | `down -v` |
-| File compose, Caddyfile, migration | **trên đĩa VPS**, bind-mount | `rm -rf` thư mục repo |
-| Secret (`.env*`) | **trên đĩa VPS**, gitignore | xoá file |
+Rút gọn cho quy trình này:
 
-Ba hệ quả:
+- Phần mềm (JDK, Android SDK, emulator, code, seed AVD) **trong image** → build
+  lại là có.
+- Dữ liệu sống (AVD đang chạy, **phiên đăng nhập Google Play**, database,
+  artifact) **trong volume** → chỉ mất khi `docker compose down -v`.
+- Cấu hình (`compose*.yaml`, `Caddyfile`, migration, `.env*`) **trên đĩa máy
+  đích**, bind-mount — cố ý không nằm trong image, xem §4.
 
-**a.** Đăng nhập CH Play chỉ làm **một lần**. Restart container, build lại image,
-deploy phiên bản mới — đều không mất.
-
-**b.** `docker compose down -v` xoá sạch volume: mất phiên CH Play, mất database,
-mất artifact. **Không bao giờ chạy lệnh này.** `down` không có `-v` thì an toàn.
-
-**c.** File cấu hình **không** nằm trong image là cố ý. Sửa một dòng `Caddyfile`
-mà phải build lại 9 GB thì không ai chịu nổi.
+⛔ `docker compose down -v` xoá sạch volume. `down` không có `-v` thì an toàn.
 
 ---
 
@@ -188,18 +178,15 @@ trên VPS. Đổi tên hay bỏ một file compose thì phải xoá tay ở máy
 
 ### Vì sao `--no-build` trên VPS
 
-`bootstrap.sh` mặc định chạy `docker compose build`. Trên VPS điều đó **hỏng
-đúng thứ bạn cần giữ**: máy đích không có `avd-seed/`, nên worker image build ở
-đó luôn là bản không seed — emulator lên màn hình đăng nhập như máy mới, và mất
-thêm ~30 phút build.
-
-Đúng cách là để VPS **kéo** image đã có seed từ Docker Hub:
+Vì `bootstrap.sh` mặc định chạy `docker compose build`, và trên máy đích điều đó
+**hỏng đúng thứ bạn cần giữ** — phiên đăng nhập CH Play, không kèm lỗi nào báo
+ra. Luôn chạy:
 
 ```bash
 ./bootstrap.sh --http-only --no-build
 ```
 
-Worker image chỉ được build ở máy đang giữ `avd-seed/` rồi `docker push`.
+Giải thích đầy đủ, cộng bốn chế độ hỏng: [avd-seed.md §5](avd-seed.md).
 
 ---
 
@@ -231,20 +218,19 @@ curl -X POST -H "Authorization: Bearer $API_TOKEN" -H "Content-Type: application
 
 ### Trước khi đưa cho đối tác dùng thật
 
-Chế độ `--http-only` chấp nhận được để **tự kiểm tra** và demo nội bộ. Nhưng
-`API_TOKEN` đi qua Internet dưới dạng chữ đọc được — ai chen được vào đường
-truyền đều lấy được token và gọi API thay bạn.
+Chế độ `--http-only` chỉ để **tự kiểm tra** và demo nội bộ — `API_TOKEN` đi qua
+Internet dưới dạng chữ đọc được ([deploy-vps.md §2](deploy-vps.md)).
 
-Trước khi giao địa chỉ cho bên ngoài, làm [deploy-vps.md §8](deploy-vps.md):
+Nâng lên HTTPS không phải build lại, không mất dữ liệu, không phải đăng nhập CH
+Play lại. Hai đường, **loại trừ nhau**:
 
-1. Trỏ domain về IP VPS
-2. Sửa ba dòng trong `deploy/.env`
-3. Bỏ `compose.http.yaml` khỏi `COMPOSE_FILE`
-4. `docker compose up -d` — Caddy tự xin cert Let's Encrypt
-5. Đóng cổng 5500 trên firewall
-6. **Đổi `API_TOKEN`** — token cũ đã đi qua HTTP trần thì coi như đã lộ
+| Đường | Khi nào | Quy trình |
+|---|---|---|
+| **Cloudflare Tunnel** — mặc định của dự án | mọi trường hợp còn lại | [public-access.md §3](public-access.md) |
+| Caddy + domain — đường thay thế | VPS có IP tĩnh **và** domain đã trỏ đúng | [deploy-vps.md §8](deploy-vps.md) |
 
-Không build lại, không mất dữ liệu, không phải đăng nhập CH Play lại.
+Cả hai đều kết thúc bằng bước **đổi `API_TOKEN`**: token cũ đã đi qua HTTP trần
+thì coi như đã lộ ([public-access.md §3](public-access.md)).
 
 Checklist đầy đủ trước khi mở public: [security.md §10](security.md).
 

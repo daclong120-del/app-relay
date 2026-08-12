@@ -101,12 +101,10 @@ cd /opt/app-relay/deploy
 DOMAIN=api.tenmien.com CADDY_EMAIL=ban@tenmien.com ./bootstrap.sh --no-build
 ```
 
-> **`--no-build` là bắt buộc trên VPS.** Máy đích không có `avd-seed/`, nên tự
-> build worker sẽ ra image **không có phiên đăng nhập CH Play** — và mất thêm
-> ~30 phút. Để VPS kéo image có seed từ Docker Hub. Xem [docker.md](docker.md).
-
-> Worker image để **private** trên Docker Hub (nó chứa credential Google), nên
-> VPS phải `docker login` một lần trước khi `bootstrap.sh` kéo image.
+> **`--no-build` là bắt buộc trên VPS**, và VPS phải `docker login` một lần trước
+> đó (worker image để private vì nó chứa credential Google). Bỏ `--no-build` là
+> mất phiên đăng nhập CH Play mà không có lỗi nào báo ra —
+> [avd-seed.md §5](avd-seed.md).
 
 Bỏ trống `DOMAIN` / `CADDY_EMAIL` thì script tự hỏi. Chạy trong CI hoặc qua
 `ssh <host> '...'` (không có TTY) thì **phải** truyền sẵn, kèm `--yes`.
@@ -179,21 +177,12 @@ Chạy lại sau khi chép cấu hình mới sang = pull lại + up lại, dữ 
 Cả ba đều gitignore. Mọi token sinh bằng `openssl rand`, không có giá trị mặc
 định nào để quên đổi.
 
-### Mẹo `COMPOSE_FILE` — sau bootstrap không cần cờ `-f` nữa
+### Sau bootstrap không cần cờ `-f` nữa
 
-Bootstrap ghi vào `deploy/.env`:
-
-```env
-COMPOSE_FILE=compose.yml:compose.kvm.yaml:compose.supabase.yaml:compose.prod.yaml
-COMPOSE_PROFILES=production
-```
-
-Docker Compose đọc hai biến này từ `.env` của thư mục project. Nghĩa là đứng
-trong `deploy/` thì `docker compose ps`, `logs`, `up -d` **tự động** dùng đúng
-bộ overlay và đúng profile. Không còn chuỗi `-f compose.yml -f compose.kvm.yaml …`
-để gõ sai.
-
-Máy không có KVM thì `compose.kvm.yaml` bị bỏ khỏi danh sách này.
+Bootstrap ghi `COMPOSE_FILE` và `COMPOSE_PROFILES` vào `deploy/.env`, nên đứng
+trong `deploy/` thì `docker compose ps`, `logs`, `up -d` tự dùng đúng bộ overlay
+và đúng profile. Cách hoạt động, luật dấu phân cách theo OS, và cạm bẫy quên đặt
+profile: [docker.md §4](docker.md).
 
 ### SUPABASE_SECRET_KEY khi self-host là cái gì
 
@@ -238,6 +227,9 @@ Cloud, và mọi ghi vào cột mới sẽ lỗi cho tới khi chạy nó.
 
 Script không làm thay được việc này. Emulator chưa đăng nhập CH Play thì mọi job
 fail ở bước tải app.
+
+> Nếu đã đặt `WORKER_GUI=off` (§1 khuyến nghị cho máy yếu) thì cổng 6080 **không
+> có ai nghe**. Chạy `./gui.sh on` trước, xem §9.
 
 Từ máy cá nhân:
 
@@ -431,17 +423,9 @@ curl https://api.tenmien.com/v1/health
 **5.** Đóng cổng 5500 trên firewall (Security Group của FPT Cloud, và `ufw` nếu
 đang bật). API đã đi qua 443, để 5500 mở là để ngỏ một đường vòng không TLS.
 
-**6.** Đổi `API_TOKEN`. Token cũ đã từng đi qua HTTP trần nên coi như đã lộ:
-
-```bash
-NEW_TOKEN="apr_live_$(openssl rand -hex 24)"
-sed -i "s|^API_TOKEN=.*|API_TOKEN=${NEW_TOKEN}|" .env.api
-docker compose up -d api
-echo "$NEW_TOKEN"
-```
-
-Chỉ `API_TOKEN` thôi — đổi `WORKER_TOKEN` thì phải sửa cả `.env.worker` cho
-trùng, và `WORKER_TOKEN` chưa bao giờ ra khỏi mạng Docker nên không cần.
+**6.** Đổi `API_TOKEN` — token cũ đã từng đi qua HTTP trần nên coi như đã lộ.
+Lệnh và lý do chỉ đổi `API_TOKEN` chứ không đổi `WORKER_TOKEN`:
+[public-access.md §3 bước 6](public-access.md).
 
 ---
 
@@ -493,17 +477,10 @@ không liên quan gì tới màn hình. Chỉ `docker compose down -v` mới xo�
 
 ### Lần đầu cần build lại một lượt
 
-Công tắc này nằm trong `entrypoint.sh` và `supervisord.conf`, hai file được COPY
-vào image. Nếu image trên máy có trước khi tính năng này được thêm:
-
-Build ở **máy giữ `avd-seed/`** (không phải trên VPS — VPS build sẽ mất seed):
-
-```bash
-docker compose build worker && docker push <user>/app-relay-worker:latest
-```
-
-Mất khoảng **2–3 phút**, không phải 30 — Docker còn cache toàn bộ layer
-apt-get và Android SDK, chỉ layer `COPY` + `pnpm build` chạy lại.
+Công tắc `WORKER_GUI` nằm trong `entrypoint.sh` và `supervisord.conf`, hai file
+được COPY vào image. Image có trước khi tính năng này được thêm thì phải build và
+push lại một lượt từ **máy giữ `avd-seed/`** — không bao giờ build trên VPS.
+Lệnh và thời gian build lại: [avd-seed.md §4](avd-seed.md).
 
 Rồi trên VPS:
 
