@@ -69,9 +69,9 @@ flowchart TD
     end
 
     subgraph G2["Giai đoạn 2 — Lên VPS lần đầu (làm TAY)"]
-        B1["Cài docker + git trên VPS"]
-        B2["git clone"]
-        B3["./bootstrap.sh<br/>sinh secret · build · up · smoke test"]
+        B1["Cài docker trên VPS<br/>(KHÔNG cần git)"]
+        B2["scp deploy/ + migrations<br/>từ máy dev"]
+        B3["./bootstrap.sh --no-build<br/>sinh secret · pull · up · smoke test"]
         B4["Mở cổng trên Security Group"]
         B5["SSH tunnel + noVNC<br/>ĐĂNG NHẬP CH PLAY"]
         B1 --> B2 --> B3 --> B4 --> B5
@@ -80,9 +80,15 @@ flowchart TD
     subgraph G3["Giai đoạn 3 — Về sau (TỰ ĐỘNG)"]
         C1["git push"]
         C2["Actions: test → migrate DB"]
-        C3["Actions: build 2 image<br/>→ đẩy Docker Hub"]
-        C4["SSH vào VPS<br/>compose pull + up -d"]
+        C3["Actions: build image API<br/>→ đẩy Docker Hub"]
+        C4["scp cấu hình sang VPS<br/>compose pull + up -d"]
         C1 --> C2 --> C3 --> C4
+    end
+
+    subgraph G4["Ngoài pipeline — chỉ khi sửa code worker"]
+        W1["Máy giữ avd-seed:<br/>compose build worker"]
+        W2["docker push worker:latest"]
+        W1 --> W2
     end
 
     A3 --> B1
@@ -106,9 +112,9 @@ Ba ô vàng là việc phải làm tay. Mọi thứ còn lại tự động.
 
 | Bước | Lệnh / thao tác |
 |---|---|
-| 4 | `curl -fsSL https://get.docker.com \| sh` rồi `apt-get install -y git` |
-| 5 | `git clone <repo> /root/app-relay` — repo private thì cần deploy key SSH hoặc token, xem [deploy-vps.md §2](deploy-vps.md) |
-| 6 | `cd /root/app-relay/deploy && ./bootstrap.sh --http-only` |
+| 4 | `curl -fsSL https://get.docker.com \| sh` — **không cần cài git nữa** |
+| 5 | Từ máy dev: `scp -r deploy supabase/migrations root@<IP>:/root/app-relay/` |
+| 6 | `cd /root/app-relay/deploy && ./bootstrap.sh --http-only --no-build` |
 | 7 | Mở cổng trên FPT Cloud Security Group (5500 nếu HTTP trần, hoặc 80+443 nếu dùng domain) |
 | 8 | `ssh -N -L 6080:127.0.0.1:6080 root@<IP>` rồi mở noVNC, **đăng nhập Google Play** |
 | 9 | `./gui.sh off` — tắt màn hình emulator cho nhẹ CPU. Không mất phiên đăng nhập |
@@ -155,9 +161,9 @@ mà phải build lại 9 GB thì không ai chịu nổi.
 
 ---
 
-## 4. Vì sao phải `git clone` chứ không chỉ pull image
+## 4. VPS cần file cấu hình, nhưng không cần git
 
-Câu hỏi hợp lý: đã có image trên Docker Hub rồi, sao VPS còn cần code?
+Câu hỏi hợp lý: đã có image trên Docker Hub rồi, sao VPS còn cần file gì nữa?
 
 Vì những thứ này **cố ý không nằm trong image**, chúng được bind-mount từ đĩa VPS:
 
@@ -169,8 +175,31 @@ Vì những thứ này **cố ý không nằm trong image**, chúng được bin
 | `supabase/migrations/*.sql` | container db lúc khởi tạo |
 | `deploy/bootstrap.sh` | chính bạn |
 
-Không có repo trên VPS thì không có gì để `docker compose` đọc, và database dựng
-lên sẽ rỗng — không role, không bảng.
+Không có đám file này trên VPS thì không có gì để `docker compose` đọc, và
+database dựng lên sẽ rỗng — không role, không bảng.
+
+**Nhưng chúng không cần tới git.** Trước đây VPS phải là một bản `git clone` và
+CI chạy `git reset --hard <sha>` mỗi lần deploy. Từ 2026-08-12 việc đó do `scp`
+đảm nhiệm: lần đầu bạn chép tay từ máy dev, về sau job ④ tự chép. VPS chỉ cần
+`docker` và `ssh` — không git, không deploy key, không token đọc repo.
+
+Đánh đổi: `scp` chỉ ghi đè chứ **không xoá**. File bị xoá khỏi repo vẫn nằm lại
+trên VPS. Đổi tên hay bỏ một file compose thì phải xoá tay ở máy đích.
+
+### Vì sao `--no-build` trên VPS
+
+`bootstrap.sh` mặc định chạy `docker compose build`. Trên VPS điều đó **hỏng
+đúng thứ bạn cần giữ**: máy đích không có `avd-seed/`, nên worker image build ở
+đó luôn là bản không seed — emulator lên màn hình đăng nhập như máy mới, và mất
+thêm ~30 phút build.
+
+Đúng cách là để VPS **kéo** image đã có seed từ Docker Hub:
+
+```bash
+./bootstrap.sh --http-only --no-build
+```
+
+Worker image chỉ được build ở máy đang giữ `avd-seed/` rồi `docker push`.
 
 ---
 

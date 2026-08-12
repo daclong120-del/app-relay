@@ -13,7 +13,8 @@ Backend thuần — **không có dashboard**, không có tài khoản, người 
 | **Đối tác gọi API** | [api-prototype.md](api-prototype.md) → [api-design.md](api-design.md) |
 | **Dev mới vào dự án** | [requirements.md](requirements.md) → [architecture.md](architecture.md) → [folder-struc.md](folder-struc.md) → [rule.md](rule.md) |
 | **Người dựng hệ thống** | [kick-start.md](kick-start.md) → [environment.md](environment.md) |
-| **Người deploy lên VPS** | [emu-gui-workflow.md](emu-gui-workflow.md) → [deploy-vps.md](deploy-vps.md) → [public-access.md](public-access.md) |
+| **Người chưa quen Docker** | [docker.md](docker.md) → [`../deploy/README.md`](../deploy/README.md) |
+| **Người deploy lên VPS** | [docker.md](docker.md) → [emu-gui-workflow.md](emu-gui-workflow.md) → [deploy-vps.md](deploy-vps.md) → [public-access.md](public-access.md) |
 | **Người mở API cho đối tác** | [public-access.md](public-access.md) → [security.md](security.md) |
 | **Người trực khi có sự cố** | [runbook.md](runbook.md) |
 | **AI làm việc trên repo** | [system-prompt.md](system-prompt.md) → [rule.md](rule.md) → [checklist.md](checklist.md) |
@@ -71,6 +72,7 @@ Backend thuần — **không có dashboard**, không có tài khoản, người 
 | File | Nội dung |
 |---|---|
 | [test-case.md](test-case.md) | ~120 case có ID, phân loại tự động / thủ công, mục tiêu coverage theo vùng |
+| [docker.md](docker.md) | Nền tảng Docker cho người chưa có nền. 4 khái niệm, **bảng 7 image của dự án**, cách ghép 6 file compose, 3 con đường deploy, volume nào mất là mất thật, dọn đĩa an toàn, 6 cạm bẫy |
 | [emu-gui-workflow.md](emu-gui-workflow.md) | Toàn cảnh 3 giai đoạn: dựng → lên VPS lần đầu → CI tự động. **4 hiểu nhầm thường gặp**, bảng cái gì trong image / cái gì trong volume, và **đánh giá thẳng quy trình này chuyên nghiệp tới đâu** |
 | [deploy-vps.md](deploy-vps.md) | VPS trắng → stack chạy được bằng `deploy/bootstrap.sh`. Tự chứa: Postgres self-host, **một bước tay duy nhất** (đăng nhập CH Play) |
 | [public-access.md](public-access.md) | Đường ra Internet **chính thức**: Cloudflare Tunnel. Quick vs named, chuyển quick→named, vì sao bỏ Caddy, **giới hạn phải biết trước khi đưa cho đối tác** |

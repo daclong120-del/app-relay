@@ -28,11 +28,12 @@ flowchart LR
     end
 
     subgraph S3[" "]
-        B1["buildx"] --> B2["login Docker Hub"] --> B3["api → :latest + :sha"] --> B4["worker → :latest + :sha"]
+        B1["buildx"] --> B2["login Docker Hub"] --> B3["api → :latest + :sha"]
+        B4["worker: KHÔNG build ở CI<br/>(seed bị gitignore)"]
     end
 
     subgraph S4[" "]
-        D1["ssh vào VPS"] --> D2["git fetch<br/>reset --hard sha"] --> D3["compose pull<br/>(COMPOSE_FILE từ .env)"] --> D4["compose up -d<br/>--remove-orphans"] --> D5["docker image prune -f"]
+        D1["scp deploy/ + migrations<br/>→ VPS"] --> D2["ssh: docker login"] --> D3["compose pull<br/>(COMPOSE_FILE từ .env)"] --> D4["compose up -d<br/>--remove-orphans"] --> D5["docker image prune -f"]
     end
 
     T -.- S1
@@ -81,20 +82,32 @@ Script giữ sổ `public.schema_migrations` kèm checksum: migration đã áp m
 
 ### ③ `build-and-push`
 
-`needs: db-migrate`, chỉ khi push.
-
-Hai image, mỗi image hai tag:
+`needs: db-migrate`, chỉ khi push. **Chỉ build image API.**
 
 ```text
 <user>/app-relay-api:latest      <user>/app-relay-api:<github.sha>
-<user>/app-relay-worker:latest   <user>/app-relay-worker:<github.sha>
 ```
 
 Tag `github.sha` là **toàn bộ cơ chế rollback** của dự án. Không có nó thì `latest` là đường một chiều.
 
 Secret: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`.
 
-Image worker ~4 GB (JDK + Android SDK + system image `android-35;google_apis_playstore;x86_64`) nên job này là job chậm nhất.
+#### Vì sao CI không build worker image
+
+[apps/worker/Dockerfile](../apps/worker/Dockerfile) có `COPY avd-seed/ /opt/avd-seed/`, mà `avd-seed/avd-seed.tar.gz` (~2.5 GB, chứa phiên đăng nhập Google Play) bị `.gitignore` chặn. CI checkout từ git nên thư mục đó **luôn rỗng**.
+
+Image CI tạo ra vẫn chạy, nhưng [create-avd.sh](../apps/worker/docker/create-avd.sh) không thấy seed sẽ rơi xuống nhánh tạo AVD trắng — mất sạch phiên đăng nhập. Đẩy bản đó lên tag `latest` là **ghi đè mất bản có seed**.
+
+Nên worker image chỉ build và push từ máy đang giữ `avd-seed/`:
+
+```bash
+docker compose build worker
+docker push <user>/app-relay-worker:latest
+```
+
+> **Hệ quả phải nhớ:** sửa code trong `apps/worker/` thì pipeline **không** đưa thay đổi đó lên VPS. Phải build tay và push. Đây là đánh đổi có chủ đích để giữ seed.
+
+Chi tiết vòng đời seed: [docker.md](docker.md).
 
 ### ④ `deploy-to-vps`
 
@@ -103,38 +116,67 @@ Image worker ~4 GB (JDK + Android SDK + system image `android-35;google_apis_pla
 ```bash
 set -e
 
-cd $VPS_DEPLOY_PATH          # mặc định /root/app-relay
-test -d .git || exit 1       # thư mục deploy PHẢI là git clone
-git fetch --prune origin
-git checkout -f $GITHUB_REF_NAME
-git reset --hard $GITHUB_SHA
+Job gồm **hai bước**. Bước ① chép file cấu hình, bước ② kéo image và dựng lại.
 
+```yaml
+# ①  appleboy/scp-action
+source: "deploy/,supabase/migrations/"
+target: $VPS_DEPLOY_PATH        # mặc định /root/app-relay
+overwrite: true
+```
+
+```bash
+# ②  appleboy/ssh-action
+set -e
+cd $VPS_DEPLOY_PATH
 if [ -d "deploy" ]; then cd deploy; fi
 
+test -f .env || exit 1          # VPS phải bootstrap trước
+chmod +x ./*.sh
+
+echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
 docker compose pull
 docker compose up -d --remove-orphans
 docker image prune -f
 ```
 
-Secret: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_SSH_PORT` (mặc định 22), `VPS_DEPLOY_PATH`.
+Secret: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_SSH_PORT` (mặc định 22), `VPS_DEPLOY_PATH`, `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`.
 
-**Ba điều kiện tiên quyết trên VPS** — thiếu cái nào job này cũng vô nghĩa hoặc fail:
+**Hai điều kiện tiên quyết trên VPS** — thiếu cái nào job này cũng vô nghĩa hoặc fail:
 
-1. `$VPS_DEPLOY_PATH` là một **git clone** của repo (private repo → cần deploy key trong `~/.ssh` của `VPS_USER`). Job fail sớm với thông báo rõ nếu không phải.
-2. `deploy/.env` đã được [bootstrap.sh](../deploy/bootstrap.sh) sinh ra, chứa `COMPOSE_FILE` và `COMPOSE_PROFILES`.
-3. `deploy/.env.api`, `deploy/.env.worker` tồn tại — pipeline không tạo chúng.
+1. `deploy/.env` đã được [bootstrap.sh](../deploy/bootstrap.sh) sinh ra, chứa `COMPOSE_FILE` và `COMPOSE_PROFILES`. Job fail sớm với thông báo rõ nếu không có.
+2. `deploy/.env.api`, `deploy/.env.worker` tồn tại — pipeline không tạo chúng.
+
+VPS **không cần git**, không cần deploy key, không cần bản clone của repo. Chỉ cần `docker` và `ssh`.
 
 #### Tại sao `set -e`
 
 `appleboy/ssh-action` mặc định `script_stop: false`, tức là **không dừng khi một lệnh fail**. Không có `set -e` thì `docker compose pull` hỏng vẫn chạy tiếp tới `echo "✅ deployed successfully"` và job báo xanh.
 
-#### Tại sao `reset --hard` chứ không phải `pull`
+#### Tại sao vẫn phải chép file sang, dù image đã ở Docker Hub
 
-Image do job ③ build, nhưng **file compose và Caddyfile không nằm trong image** — chúng đọc từ đĩa VPS lúc `up`. Không đồng bộ git ở bước này thì mọi thay đổi trong `deploy/` không bao giờ tới máy đích.
+Câu hỏi hợp lý: đã kéo image từ registry thì VPS còn cần file gì nữa?
 
-`reset --hard` thay vì `pull` vì hai lý do: git là nguồn sự thật cho file compose, và commit trên VPS phải khớp **đúng** commit đã build ra image.
+Vì những thứ này **cố ý không nằm trong image**, `docker compose` đọc thẳng từ đĩa VPS lúc `up`:
 
-> Lệnh này **xoá mọi sửa tay trên file đã track** ở VPS. File `.env`, `.env.api`, `.env.worker` an toàn — chúng gitignore nên untracked, ngoài tầm với của `reset --hard`.
+| File | Ai đọc |
+|---|---|
+| `deploy/compose*.yaml` | chính `docker compose` |
+| `deploy/caddy/Caddyfile` | container caddy |
+| `deploy/supabase-local/*.sh`, `*.sql` | container db lúc khởi tạo |
+| `supabase/migrations/*.sql` | container db lúc khởi tạo |
+
+Trước đây việc đồng bộ này do `git fetch` + `reset --hard <sha>` trên VPS đảm nhiệm. Bỏ git thì `scp` thay vào chỗ đó.
+
+> **Khác biệt phải biết:** `scp` chỉ **ghi đè**, không xoá. File đã bị xoá khỏi repo sẽ **vẫn nằm lại** trên VPS, khác với `reset --hard` trước đây. Đổi tên hay xoá một file compose thì phải xoá tay trên máy đích.
+
+> `.env`, `.env.api`, `.env.worker` đều gitignore nên không có trong workspace của runner → `scp` không đụng tới. Secret trên VPS an toàn.
+
+> `scp` không giữ bit thực thi, nên bước ② có `chmod +x ./*.sh`. Thiếu dòng đó thì lần sau gõ `./gui.sh` trên VPS sẽ ra `Permission denied`.
+
+#### Tại sao phải `docker login` trên VPS
+
+Worker image chứa seed đăng nhập Google, nên repo Docker Hub **bắt buộc private**. Không login thì `docker compose pull` fail với `pull access denied` — thông báo này rất dễ đọc nhầm thành "image không tồn tại".
 
 #### Tại sao không còn `-f` lẫn `--profile`
 
@@ -158,7 +200,7 @@ Trước đây CI truyền `-f compose.yml` tường minh, mà **`-f` đè `COMP
 
 Cả ba đã sửa.
 
-> Quy tắc chung cho job ④: **không cờ nào của `docker compose` được hardcode trong CI.** Máy đích tự mô tả nó qua `deploy/.env`; CI chỉ đồng bộ git rồi gọi `pull` + `up -d`.
+> Quy tắc chung cho job ④: **không cờ nào của `docker compose` được hardcode trong CI.** Máy đích tự mô tả nó qua `deploy/.env`; CI chỉ chép file cấu hình sang rồi gọi `pull` + `up -d`.
 
 ---
 
@@ -170,7 +212,7 @@ Cả ba đã sửa.
 | `SUPABASE_PROJECT_REF` | ② | |
 | `SUPABASE_DB_URL` | ② | migrate fail → chặn ③④ |
 | `DOCKERHUB_USERNAME` | ③④ | login fail → chặn ④ |
-| `DOCKERHUB_TOKEN` | ③ | |
+| `DOCKERHUB_TOKEN` | ③④ | ④ `pull access denied` vì repo private |
 | `VPS_HOST` | ④ | |
 | `VPS_USER` | ④ | |
 | `VPS_SSH_KEY` | ④ | ssh fail |
@@ -196,7 +238,10 @@ Không cần `-f` — `COMPOSE_FILE` trong `deploy/.env` lo phần đó.
 
 Cố định thì ghi `IMAGE_TAG=<sha>` vào `deploy/.env`. Bỏ dòng đó ra là quay về `latest`.
 
-> `deploy/.env` untracked nên `git reset --hard` của job ④ **không xoá** dòng ghim này. Ghim xong mà quên gỡ thì mọi push sau đó vẫn build image mới, deploy vẫn báo xanh, còn VPS thì đứng yên ở SHA cũ.
+> `deploy/.env` không có trong workspace của runner nên `scp` của job ④ **không đè** dòng ghim này. Ghim xong mà quên gỡ thì mọi push sau đó vẫn build image mới, deploy vẫn báo xanh, còn VPS thì đứng yên ở SHA cũ.
+
+> **Rollback chỉ áp dụng cho API.** Worker không có tag `<sha>` vì CI không build nó. Muốn lùi worker thì phải build lại từ máy giữ seed, hoặc tự gắn tag phiên bản lúc push:
+> `docker push <user>/app-relay-worker:2026-08-11`
 
 ### Schema
 

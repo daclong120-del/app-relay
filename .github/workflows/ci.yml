@@ -70,7 +70,7 @@ jobs:
           pnpm exec tsx scripts/db-migrate.ts --apply
 
   build-and-push:
-    name: Build & Push Images to Docker Hub
+    name: Build & Push API Image to Docker Hub
     runs-on: ubuntu-latest
     needs: db-migrate
     if: github.event_name == 'push'
@@ -98,15 +98,19 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/app-relay-api:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/app-relay-api:${{ github.sha }}
 
-      - name: Build & Push Worker Image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./apps/worker/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/app-relay-worker:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/app-relay-worker:${{ github.sha }}
+      # Worker image CỐ Ý không build ở đây.
+      #
+      # apps/worker/Dockerfile có `COPY avd-seed/ /opt/avd-seed/`, mà
+      # avd-seed/avd-seed.tar.gz bị .gitignore chặn (2.5 GB, chứa phiên đăng
+      # nhập Google). CI checkout từ git nên thư mục đó luôn rỗng → image CI
+      # tạo ra chạy được nhưng KHÔNG có phiên đăng nhập CH Play, và đẩy lên tag
+      # `latest` là ghi đè mất bản có seed.
+      #
+      # Worker image chỉ được build và push từ máy đang giữ avd-seed:
+      #     docker compose build worker
+      #     docker push <user>/app-relay-worker:latest
+      #
+      # Chi tiết: docs/docker.md, docs/CI-CD.md
 
   deploy-to-vps:
     name: Deploy to VPS
@@ -115,6 +119,27 @@ jobs:
     if: github.event_name == 'push'
 
     steps:
+      # ── ①  Đẩy file cấu hình sang VPS ────────────────────────────────────
+      #
+      # Image nằm trên Docker Hub, nhưng compose*.yaml / Caddyfile / SQL khởi
+      # tạo DB thì KHÔNG nằm trong image — `docker compose` đọc thẳng từ đĩa
+      # VPS. Trước đây việc này do `git reset --hard` trên VPS đảm nhiệm; giờ
+      # bỏ git nên phải chép thẳng từ runner sang.
+      #
+      # Runner checkout từ git nên .env, .env.api, .env.worker (đều gitignore)
+      # KHÔNG có trong workspace → không bị chép đè. Secret trên VPS an toàn.
+      - name: Sync deploy config to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT || 22 }}
+          source: "deploy/,supabase/migrations/"
+          target: ${{ secrets.VPS_DEPLOY_PATH || '/root/app-relay' }}
+          overwrite: true
+
+      # ── ②  Kéo image và dựng lại stack ───────────────────────────────────
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
@@ -129,25 +154,28 @@ jobs:
             set -e
 
             cd ${{ secrets.VPS_DEPLOY_PATH || '/root/app-relay' }}
+            if [ -d "deploy" ]; then cd deploy; fi
 
-            # Image do job ③ build, nhưng file compose / Caddyfile thì KHÔNG nằm
-            # trong image — chúng đọc từ đĩa VPS. Không đồng bộ git ở đây thì mọi
-            # thay đổi trong deploy/ không bao giờ tới máy đích.
-            test -d .git || {
-              echo "❌ $PWD không phải git clone. Deploy cần clone repo về đây trước:"
-              echo "   git clone <repo-url> ${{ secrets.VPS_DEPLOY_PATH || '/root/app-relay' }}"
+            # Bước ① chép được thì file này phải có. Thiếu nghĩa là VPS chưa
+            # chạy bootstrap.sh lần nào — pull rồi up cũng vô nghĩa vì không có
+            # COMPOSE_FILE, không có secret.
+            test -f .env || {
+              echo "❌ Không thấy $PWD/.env — VPS chưa bootstrap."
+              echo "   Chạy một lần trên VPS: cd deploy && ./bootstrap.sh"
               exit 1
             }
-            git fetch --prune origin
-            git checkout -f ${{ github.ref_name }}
-            # reset --hard, không phải pull: git là nguồn sự thật cho file compose,
-            # và commit này phải khớp đúng commit đã build ra image. Lệnh này XOÁ
-            # mọi sửa tay trên file đã track ở VPS. File .env* không bị đụng vì
-            # chúng gitignore (untracked không nằm trong tầm reset --hard).
-            git reset --hard ${{ github.sha }}
 
-            if [ -d "deploy" ]; then cd deploy; fi
+            # scp không giữ bit thực thi. Không có dòng này thì lần sau gõ
+            # ./bootstrap.sh hay ./gui.sh trên VPS sẽ ra "Permission denied".
+            chmod +x ./*.sh 2>/dev/null || true
+
             export DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
+
+            # Worker image chứa seed đăng nhập Google nên repo Docker Hub để
+            # PRIVATE — không login thì `compose pull` fail với "pull access
+            # denied", rất dễ đọc nhầm thành "image không tồn tại".
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" \
+              | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
             # Không truyền -f, cũng không truyền --profile. Cả hai đọc từ
             # COMPOSE_FILE / COMPOSE_PROFILES trong deploy/.env do bootstrap.sh

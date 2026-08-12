@@ -6,6 +6,23 @@ Format: `Added` / `Changed` / `Fixed` / `Removed`.
 
 ---
 
+## 2026-08-12
+
+### Changed
+
+- **BREAKING — VPS không còn cần git.** Deploy chuyển hẳn sang Docker Hub. Job ④ của CI thay `git fetch` + `reset --hard <sha>` bằng `appleboy/scp-action`: chép `deploy/` và `supabase/migrations/` thẳng từ runner sang máy đích, rồi `docker login` → `compose pull` → `up -d`. VPS chỉ cần `docker` và `ssh` — bỏ được deploy key, token đọc repo, và điều kiện "thư mục deploy phải là git clone".
+- **`scp` chỉ ghi đè, không xoá.** Khác `reset --hard` trước đây: file đã xoá khỏi repo vẫn nằm lại trên VPS. Đổi tên hay bỏ một file compose thì phải xoá tay ở máy đích.
+- **Job ④ `docker login` trước khi pull.** Worker image chứa seed đăng nhập Google nên repo Docker Hub bắt buộc private; không login thì `compose pull` fail với `pull access denied` — thông báo rất dễ đọc nhầm thành "image không tồn tại". Thêm `DOCKERHUB_TOKEN` vào danh sách secret job ④.
+- Job ④ thêm `chmod +x ./*.sh` — `scp` không giữ bit thực thi, thiếu dòng này thì `./gui.sh` trên VPS báo `Permission denied`.
+- **`bootstrap.sh` trên VPS phải chạy kèm `--no-build`.** Máy đích không có `avd-seed/`, tự build worker sẽ ra image mất phiên đăng nhập CH Play, cộng ~30 phút. Tài liệu đã đổi; **default của script vẫn là build** — chưa đụng tới.
+- `deploy/gui.sh` bỏ gợi ý `git pull`, đổi sang `docker compose pull worker`.
+
+### Removed
+
+- **Job CI build worker image.** `apps/worker/Dockerfile` có `COPY avd-seed/ /opt/avd-seed/`, mà `avd-seed/avd-seed.tar.gz` (~2.5 GB, chứa phiên đăng nhập Google Play) bị `.gitignore` chặn — CI checkout từ git nên thư mục luôn rỗng, image tạo ra mất seed, và đẩy lên `latest` là ghi đè mất bản dùng thật. **Hệ quả: sửa code trong `apps/worker/` thì pipeline không đưa lên VPS**, phải `docker compose build worker && docker push` tay từ máy giữ seed. Worker cũng không còn tag `<sha>` để rollback.
+
+---
+
 ## 2026-08-11
 
 ### Added

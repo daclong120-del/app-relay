@@ -47,27 +47,25 @@ sao không có cert — thử thách ACME đi qua cổng 80.
 ## 2. Ba lệnh
 
 ```bash
-# 1. Docker + git. get.docker.com KHÔNG cài git, và bản Ubuntu server tối giản
-#    thường không có sẵn — thiếu nó thì bước 2 báo "command not found".
+# 1. Chỉ cần Docker. KHÔNG cần git nữa — từ 2026-08-12 file cấu hình tới VPS
+#    bằng scp, không qua git clone.
 curl -fsSL https://get.docker.com | sh
-apt-get update && apt-get install -y git
 
-# 2. Lấy code
-sudo mkdir -p /opt/app-relay && sudo chown "$USER":"$USER" /opt/app-relay
-git clone git@github.com:<owner>/app-relay.git /opt/app-relay
+# 2. Chép cấu hình từ MÁY DEV sang (chạy ở máy dev, không phải trên VPS)
+ssh <user>@<IP> 'mkdir -p /opt/app-relay'
+scp -r deploy supabase/migrations <user>@<IP>:/opt/app-relay/
 
-# 3. Dựng tất cả
+# 3. Dựng tất cả (trên VPS)
 cd /opt/app-relay/deploy
-DOMAIN=api.tenmien.com CADDY_EMAIL=ban@tenmien.com ./bootstrap.sh
+DOMAIN=api.tenmien.com CADDY_EMAIL=ban@tenmien.com ./bootstrap.sh --no-build
 ```
 
-Repo private mà clone qua HTTPS sẽ **treo vô hạn** chờ mật khẩu — không lỗi,
-không timeout, chỉ đứng im. Dùng deploy key SSH như trên, hoặc nếu buộc phải
-dùng token thì tắt hẳn prompt để nó fail ngay:
+> **`--no-build` là bắt buộc trên VPS.** Máy đích không có `avd-seed/`, nên tự
+> build worker sẽ ra image **không có phiên đăng nhập CH Play** — và mất thêm
+> ~30 phút. Để VPS kéo image có seed từ Docker Hub. Xem [docker.md](docker.md).
 
-```bash
-GIT_TERMINAL_PROMPT=0 git clone https://<token>@github.com/<owner>/app-relay.git /opt/app-relay
-```
+> Worker image để **private** trên Docker Hub (nó chứa credential Google), nên
+> VPS phải `docker login` một lần trước khi `bootstrap.sh` kéo image.
 
 Bỏ trống `DOMAIN` / `CADDY_EMAIL` thì script tự hỏi. Chạy trong CI hoặc qua
 `ssh <host> '...'` (không có TTY) thì **phải** truyền sẵn, kèm `--yes`.
@@ -75,7 +73,7 @@ Bỏ trống `DOMAIN` / `CADDY_EMAIL` thì script tự hỏi. Chạy trong CI ho
 ### Chưa có tên miền — chạy thử bằng HTTP trần
 
 ```bash
-./bootstrap.sh --http-only
+./bootstrap.sh --http-only --no-build
 ```
 
 API ra thẳng `http://<IP-VPS>:5500`, không có Caddy, không có TLS. Dùng để kiểm
@@ -127,7 +125,7 @@ flowchart TD
 ```
 
 Script **idempotent**: chạy lại không ghi đè secret đã sinh, không xoá volume.
-Chạy lại sau khi `git pull` = build lại + up lại, dữ liệu giữ nguyên.
+Chạy lại sau khi chép cấu hình mới sang = pull lại + up lại, dữ liệu giữ nguyên.
 
 ### Ba file nó sinh ra
 
@@ -245,11 +243,11 @@ docker compose logs -f api
 docker compose logs -f caddy          # xem cấp cert Let's Encrypt
 docker compose restart worker
 
-# Deploy lại sau khi sửa code
-git pull && docker compose up -d --build
+# Deploy lại sau khi sửa code — kéo image mới từ Docker Hub, KHÔNG build ở đây
+docker compose pull && docker compose up -d
 
-# Chỉ build lại api (nhanh, không đụng worker image 9 GB)
-docker compose up -d --build api
+# Chỉ kéo lại api
+docker compose pull api && docker compose up -d api
 ```
 
 Lấy lại `API_TOKEN` khi cần đưa cho bên gọi API:
@@ -457,13 +455,20 @@ không liên quan gì tới màn hình. Chỉ `docker compose down -v` mới xo�
 Công tắc này nằm trong `entrypoint.sh` và `supervisord.conf`, hai file được COPY
 vào image. Nếu image trên máy có trước khi tính năng này được thêm:
 
+Build ở **máy giữ `avd-seed/`** (không phải trên VPS — VPS build sẽ mất seed):
+
 ```bash
-cd /root/app-relay && git pull
-cd deploy && docker compose build worker && docker compose up -d worker
+docker compose build worker && docker push <user>/app-relay-worker:latest
 ```
 
 Mất khoảng **2–3 phút**, không phải 30 — Docker còn cache toàn bộ layer
 apt-get và Android SDK, chỉ layer `COPY` + `pnpm build` chạy lại.
+
+Rồi trên VPS:
+
+```bash
+cd /root/app-relay/deploy && docker compose pull worker && docker compose up -d worker
+```
 
 ### Trước khi đổ lỗi cho GUI
 

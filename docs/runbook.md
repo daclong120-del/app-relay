@@ -289,14 +289,13 @@ curl -s -H "Authorization: Bearer $T" http://127.0.0.1:5500/v1/jobs/$JOB/events 
 ### Deploy tay
 
 ```bash
-cd /opt/app-relay
-git pull
+# Từ MÁY DEV — chép cấu hình mới sang (VPS không còn là git clone)
+scp -r deploy supabase/migrations <user>@<IP>:/opt/app-relay/
 
-cd deploy
-$C pull            # nếu dùng image từ Docker Hub
-# hoặc
-$C build           # nếu build tại chỗ
-
+# Trên VPS
+cd /opt/app-relay/deploy
+docker login                    # repo private vì worker image chứa seed
+$C pull                         # KHÔNG `build` — build ở đây làm mất seed
 $C up -d
 $C ps
 curl -s http://127.0.0.1:5500/v1/health

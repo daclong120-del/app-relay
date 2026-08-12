@@ -219,14 +219,17 @@ Máy mới chỉ cần `docker compose pull` rồi `up -d`: `create-avd.sh` th�
 bung ra thay vì tạo AVD trắng, Play Store vào thẳng không hỏi mật khẩu.
 
 > **TUYỆT ĐỐI KHÔNG `docker compose build` ở máy đích.** `avd-seed/` bị
-> `.gitignore` chặn (2.5 GB, chứa credential Google), nên bản `git clone` ở máy
-> đích chỉ có `.gitkeep`. Build ở đó ra image **không có seed**, `create-avd.sh`
-> rơi về nhánh tạo AVD trắng, và bạn phải đăng nhập CH Play lại — không có lỗi
-> nào báo ra, chỉ là màn hình đăng nhập hiện lên như máy mới tinh.
+> `.gitignore` chặn (2.5 GB, chứa credential Google), và máy đích chỉ nhận
+> `deploy/` + `supabase/migrations/` qua `scp` — không có seed ở đó. Build ở đó
+> ra image **không có seed**, `create-avd.sh` rơi về nhánh tạo AVD trắng, và bạn
+> phải đăng nhập CH Play lại — không có lỗi nào báo ra, chỉ là màn hình đăng
+> nhập hiện lên như máy mới tinh.
+>
+> Vì vậy `bootstrap.sh` trên VPS phải chạy kèm **`--no-build`**.
 >
 > Hệ quả: worker image **phải** build từ máy đang giữ seed, rồi `push`. Đây cũng
-> là lý do job `build-and-push` trong CI không tạo được worker image dùng được
-> seed — CI checkout từ git nên không bao giờ có file đó.
+> là lý do job build worker đã **bị gỡ hẳn khỏi CI** — CI checkout từ git nên
+> không bao giờ có file đó, và đẩy lên `latest` là ghi đè mất bản dùng thật.
 
 | | |
 |---|---|

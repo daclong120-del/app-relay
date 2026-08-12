@@ -58,10 +58,14 @@ esac
 if docker compose ps -q worker >/dev/null 2>&1 && [ -n "$(docker compose ps -q worker 2>/dev/null)" ]; then
   if ! docker compose exec -T worker grep -q 'WORKER_GUI' /app/apps/worker/docker/entrypoint.sh 2>/dev/null; then
     die "Image worker đang chạy được build TRƯỚC khi có công tắc này, nên đổi cũng vô ích.
-   Cập nhật rồi build lại (khoảng 2-3 phút, Docker còn cache Android SDK):
+   Kéo image mới từ Docker Hub:
 
-     cd .. && git pull && cd deploy
-     docker compose build worker && docker compose up -d worker
+     docker compose pull worker && docker compose up -d worker
+
+   Image worker KHÔNG do CI build (nó chứa seed đăng nhập CH Play). Nếu trên
+   Docker Hub cũng chưa có bản mới thì phải build ở máy đang giữ avd-seed/:
+
+     docker compose build worker && docker push <user>/app-relay-worker:latest
 
    Xong rồi chạy lại: ./gui.sh $TARGET"
   fi
