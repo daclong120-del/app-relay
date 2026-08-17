@@ -4,14 +4,6 @@ Bản kiểm kê **khối chức năng đang có trong repo**, đối chiếu th
 
 Đọc file này khi cần trả lời: *"dự án này đã có cục nào rồi?"*, *"cái X đã làm chưa hay mới chỉ nằm trong plan?"*
 
-Ba file gần nhau nhưng khác việc:
-
-| File | Trả lời câu hỏi |
-|---|---|
-| **features.md** (file này) | Đang **có** gì |
-| [plan.md](plan.md) | Còn **thiếu** gì, làm theo thứ tự nào |
-| [changelog.md](changelog.md) | Đã **đổi** gì, ngày nào |
-
 Ký hiệu trạng thái:
 
 - ✅ **chạy được và đang dùng thật** — có code, có đường chạy qua nó trong luồng thật

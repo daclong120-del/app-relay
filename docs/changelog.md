@@ -170,17 +170,3 @@ Format: `Added` / `Changed` / `Fixed` / `Removed`.
 
 - **BREAKING — bỏ dashboard.** Bản scaffold ban đầu (`c3851ab`) có dashboard với auth và database riêng. Tái kiến trúc thành backend thuần: không giao diện, không bảng tài khoản, người gọi là hệ thống khác.
 
----
-
-## Nợ chưa trả
-
-Không phải mục changelog, nhưng ai đọc file này nên biết:
-
-- `pnpm test:endpoints` và `pnpm download:artifacts` **đang hỏng** (xem 2026-08-10).
-- `deploy/.env.api.example` thiếu 5 biến code đang đọc.
-- CI test trên Node 20, image API chạy Node 22.
-- `apps.artifact_size_bytes` là cột chết — không code nào ghi vào.
-- `workers.status = 'draining'` khai trong schema nhưng không code nào dùng.
-- `artifacts.state = 'deleted'` tương tự.
-
-Chi tiết và thứ tự xử lý ở [plan.md](plan.md).

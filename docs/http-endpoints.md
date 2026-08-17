@@ -373,48 +373,6 @@ Ba chốt: `workerId` phải khớp `jobs.worker_id` (`409`), job phải `runnin
 
 ---
 
-## 7. Luồng ký và tải
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant C as Client
-    participant J as /v1/jobs/:id/artifact
-    participant D as /v1/artifacts/:aid/download
-    participant FS as Đĩa API
-    participant BG as cleanup.ts
-
-    C->>J: POST download-url {select|path}
-    J->>J: đọc artifacts.files từ DB
-    J->>J: lọc theo selectorMatches()
-    alt kind = bundle_zip và xin cắt lẻ
-        J-->>C: 409 LEGACY_ARTIFACT
-    else không file nào khớp
-        J-->>C: 404 NOTHING_SELECTED
-    else
-        J->>J: HMAC(artifactId + ":" + expires)
-        J-->>C: {downloadUrl, expiresAt, sha256 nếu 1 file, fileCount}
-    end
-
-    C->>D: GET ?select=…&expires=…&signature=…
-    D->>D: verify — hết hạn hoặc lệch → 403
-    D->>D: state phải available/partial, không thì 410
-    D->>FS: listArtifactFiles() rồi lọc lại
-    Note over D: lọc HAI LẦN — file có thể đã bị cron xoá<br/>giữa lúc phát link và lúc tải
-
-    alt 1 file
-        D-->>C: 200 thô + Content-Length + Accept-Ranges
-    else nhiều file
-        D-->>C: 200 ZIP stream, không Content-Length
-    end
-
-    D->>BG: on 'finish' + statusCode 200 + tập file có APK
-    BG->>BG: job có delete_after_download?
-    BG->>FS: sau ân hạn → xoá APK, state = partial
-```
-
----
-
 ## 8. Rate limit
 
 **Không có.** Cố ý chưa làm ở bản 1.0, không phải bỏ sót.
