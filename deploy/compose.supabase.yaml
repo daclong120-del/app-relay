@@ -41,7 +41,7 @@ services:
       timeout: 5s
       retries: 10
     networks:
-      - app-relay
+      - internal
 
   rest:
     image: postgrest/postgrest:v12.2.3
@@ -56,7 +56,7 @@ services:
       db:
         condition: service_healthy
     networks:
-      - app-relay
+      - internal
 
   supabase:
     image: nginx:1.27-alpine
@@ -71,7 +71,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - app-relay
+      - internal
 
   api:
     depends_on:

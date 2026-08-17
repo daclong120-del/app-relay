@@ -1,3 +1,12 @@
+# Tên project đặt tường minh, KHÔNG để compose suy ra từ tên thư mục.
+#
+# Mặc định compose lấy tên thư mục chứa file — ở đây là `deploy` — rồi dán vào
+# mọi thứ nó sinh ra: container `deploy-api-1`, volume `deploy_worker-avd`,
+# network `deploy_app-relay`. Sai hai đường: `deploy` không nói lên app nào, và
+# bất kỳ project nào khác trên cùng máy Docker cũng có thư mục tên `deploy` là
+# đụng nhau. Ghim ở đây thì tên bám theo app, không bám theo chỗ đặt file.
+name: app-relay
+
 services:
   caddy:
     image: caddy:2
@@ -18,10 +27,14 @@ services:
       api:
         condition: service_healthy
     networks:
-      - app-relay
+      - internal
 
   api:
-    image: ${DOCKERHUB_USERNAME:-apprelay}/app-relay-api:${IMAGE_TAG:-latest}
+    # Fallback là namespace THẬT của dự án, không phải một tên chung chung.
+    # Trước đây fallback là `apprelay` — tài khoản đó CÓ TỒN TẠI trên Docker Hub
+    # nhưng không phải của mình. Thiếu .env là compose lặng lẽ đi kéo image của
+    # người lạ (hoặc báo not found) thay vì dùng image mình vừa build.
+    image: ${DOCKERHUB_USERNAME:-conghieudoan19}/app-relay-api:${IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: apps/api/Dockerfile
@@ -47,10 +60,10 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - app-relay
+      - internal
 
   worker:
-    image: ${DOCKERHUB_USERNAME:-apprelay}/app-relay-worker:${IMAGE_TAG:-latest}
+    image: ${DOCKERHUB_USERNAME:-conghieudoan19}/app-relay-worker:${IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: apps/worker/Dockerfile
@@ -71,7 +84,7 @@ services:
       - worker-avd:/home/worker/.android
       - worker-work:/app/apps/worker/work
     networks:
-      - app-relay
+      - internal
 
 volumes:
   api-artifacts:
@@ -80,6 +93,9 @@ volumes:
   caddy-data:
   caddy-config:
 
+# Key `internal`, không phải `app-relay`: compose đã tự thêm tiền tố tên project
+# vào network, nên đặt key trùng tên project ra `app-relay_app-relay`. Key mô tả
+# VAI TRÒ của mạng (nội bộ, không publish), tên project lo phần định danh.
 networks:
-  app-relay:
+  internal:
 

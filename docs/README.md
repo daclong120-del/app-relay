@@ -1,8 +1,8 @@
 # Tài liệu app-relay
 
-Dịch vụ HTTP nhận URL Google Play, dùng Android emulator kéo APK + listing về, giao lại cho người gọi.
+Dịch vụ HTTP nhận URL Google Play, dùng Android emulator kéo APK + listing về, đóng gói artifact và giao lại cho người gọi qua HTTP API.
 
-Backend thuần — **không có dashboard**, không có tài khoản, người gọi là hệ thống khác.
+Backend thuần — **không có dashboard**, không có quản lý tài khoản người dùng, người gọi là hệ thống khác.
 
 ---
 
@@ -10,77 +10,57 @@ Backend thuần — **không có dashboard**, không có tài khoản, người 
 
 | Tôi là… | Đọc theo thứ tự |
 |---|---|
-| **Đối tác gọi API** | [api-prototype.md](api-prototype.md) → [api-design.md](api-design.md) |
-| **Dev mới vào dự án** | [requirements.md](requirements.md) → [architecture.md](architecture.md) → [folder-struc.md](folder-struc.md) → [rule.md](rule.md) |
-| **Người dựng hệ thống** | [kick-start.md](kick-start.md) → [environment.md](environment.md) |
-| **Người chưa quen Docker** | [docker.md](docker.md) → [`../deploy/README.md`](../deploy/README.md) |
-| **Người deploy lên VPS** | [docker.md](docker.md) → [emu-gui-workflow.md](emu-gui-workflow.md) → [avd-seed.md](avd-seed.md) → [deploy-vps.md](deploy-vps.md) → [public-access.md](public-access.md) |
-| **Người mở API cho đối tác** | [public-access.md](public-access.md) → [security.md](security.md) |
-| **Người trực khi có sự cố** | [runbook.md](runbook.md) |
-| **AI làm việc trên repo** | [system-prompt.md](system-prompt.md) → [rule.md](rule.md) → [checklist.md](checklist.md) |
-| **Người review code** | [checklist.md](checklist.md) → [test-case.md](test-case.md) |
-| **Người muốn xem tổng quan đã làm được gì** | [features.md](features.md) |
-| **Người quyết định làm gì tiếp** | [features.md](features.md) → [plan.md](plan.md) |
+| **Đối tác gọi API** | [http-endpoints.md](http-endpoints.md) → [artifact-design.md](artifact-design.md) → [domain-setup.md](domain-setup.md) |
+| **Dev mới vào dự án** | [requirements.md](requirements.md) → [context.md](context.md) → [architecture.md](architecture.md) → [folder-struc.md](folder-struc.md) |
+| **Người dựng môi trường dev** | [docker.md](docker.md) → [environment.md](environment.md) → [`../deploy/README.md`](../deploy/README.md) |
+| **Người vận hành / deploy VPS** | [docker.md](docker.md) → [avd-seed.md](avd-seed.md) → [emu-gui-workflow.md](emu-gui-workflow.md) → [domain-setup.md](domain-setup.md) → [`../deploy/README.md`](../deploy/README.md) |
+| **Người mở API ra Internet** | [domain-setup.md](domain-setup.md) → [security.md](security.md) |
+| **Người trực khi có sự cố (Ops)** | [runbook.md](runbook.md) |
+| **AI làm việc trên repo** | [`../AGENTS.md`](../AGENTS.md) → [`../CLAUDE.md`](../CLAUDE.md) → [context.md](context.md) → [architecture.md](architecture.md) → [folder-struc.md](folder-struc.md) → [http-endpoints.md](http-endpoints.md) |
+| **Người review code & kiểm thử** | [test-case.md](test-case.md) → [CI-CD.md](CI-CD.md) |
+| **Người xem tổng quan tính năng** | [features.md](features.md) → [changelog.md](changelog.md) |
 
 ---
 
 ## Toàn bộ tài liệu
 
-### B1 — Requirements
+### 1. Yêu cầu & Ranh giới (Requirements & Context)
 
 | File | Nội dung |
 |---|---|
-| [requirements.md](requirements.md) | Làm cái gì, xong là như thế nào. Bảng in/out scope, 5 user story kèm acceptance criteria, ràng buộc phi chức năng đo được, giả định chưa kiểm chứng |
+| [requirements.md](requirements.md) | Yêu cầu nghiệp vụ cốt lõi: nhận URL Play Store, pipeline 5 bước trích xuất APK + listing + screenshots, layout thư mục artifact bắt buộc, tiêu chí nghiệm thu. |
+| [context.md](context.md) | Ranh giới hệ thống: mô hình hộp đen app-relay, các actor (đối tác gọi API, người vận hành qua noVNC, Google Play, Supabase/Postgres), luồng dữ liệu qua ranh giới. |
+| [features.md](features.md) | Bản kiểm kê 13 khối chức năng đối chiếu trực tiếp với codebase, phân loại trạng thái (✅ Đang dùng thật / 🟨 Chưa đủ / ⬜ Chưa làm), các tính năng chưa có. |
 
-### B2 — Design & Architect (định hướng)
-
-| File | Nội dung |
-|---|---|
-| [api-prototype.md](api-prototype.md) | Sản phẩm dùng như thế nào. 4 kịch bản bash chạy được, 5 trạng thái client phải xử lý, fake data để dựng client trước |
-| [context.md](context.md) | Ranh giới hệ thống. Actor, hệ thống ngoài, dữ liệu qua ranh giới, và cái gì **không** chịu trách nhiệm |
-| [system-prompt.md](system-prompt.md) | Chỉ thị cho AI. Stack chốt, quy trình GitNexus, và **bảng 20 cạm bẫy đã thử và hỏng** |
-
-### B3 — Kick-start
+### 2. Kiến trúc & Thiết kế (Architecture & Design)
 
 | File | Nội dung |
 |---|---|
-| [kick-start.md](kick-start.md) | Dựng từ máy trắng. 10 bước, có nhánh rẽ khi không có KVM, 6 cổng xác nhận |
+| [architecture.md](architecture.md) | Kiến trúc tổng thể 5 khối (Cửa vào → Quầy tiếp nhận API → Sổ cái DB → Kho đĩa Artifacts → Máy làm việc Worker), luồng xử lý đơn hàng từ nhận URL tới bàn giao artifact. |
+| [http-endpoints.md](http-endpoints.md) | Đặc tả 23 HTTP API endpoint (14 public `/v1` + 9 internal `/internal/v1`), 3 mặt phẳng xác thực (`API_TOKEN`, `WORKER_TOKEN`, HMAC signed URL), định dạng phản hồi chuẩn, mã lỗi, phân trang. |
+| [database-design.md](database-design.md) | Thiết kế CSDL Postgres / Supabase, ERD 5 bảng (`jobs`, `job_events`, `apps`, `workers`, `artifacts`), hàm điều phối `claim_job()`, Row Level Security (RLS), quy trình migration. |
+| [artifact-design.md](artifact-design.md) | Cấu trúc chi tiết thư mục output (`base.apk`, `split_config.*.apk`, `PULL_MANIFEST.txt`, `listing.json`, `screenshots/`), 8 bộ lọc tải `select` (ZIP / APK thô), TTL dọn dẹp. |
+| [folder-struc.md](folder-struc.md) | Cây thư mục toàn monorepo (`apps/api`, `apps/worker`, `packages/contracts`, `packages/shared`, `deploy/`, `supabase/`, `scripts/`, `docs/`), trách nhiệm từng module và quy tắc phụ thuộc. |
 
-### B4 — Design & Architect (chi tiết)
-
-| File | Nội dung |
-|---|---|
-| [architecture.md](architecture.md) | Thành phần, 4 sơ đồ (tổng quan · sequence · state machine · vòng đời artifact), **11 quyết định kiến trúc kèm phương án đã loại**, 9 nhược điểm đã biết |
-| [folder-struc.md](folder-struc.md) | Cây thư mục từ `git ls-files`, mỗi thư mục chứa gì / **không** chứa gì, 4 luật phụ thuộc |
-| [api-design.md](api-design.md) | 23 endpoint, 3 mặt phẳng xác thực, 8 selector, **bảng đầy đủ mã lỗi public + internal** |
-| [database-design.md](database-design.md) | ERD, 5 bảng, `claim_job()` giải thích từng mệnh đề, RLS, quy trình migration, **8 cột jsonb phi chuẩn hoá có chủ đích**, và **vì sao không dùng ORM** |
-| [artifact-design.md](artifact-design.md) | Hợp đồng hình dạng đầu ra. Layout chuẩn, **tên file nào là hợp đồng**, toàn vẹn sha256, TTL tách đôi, 3 chốt chống xoá nhầm |
-| [environment.md](environment.md) | 3 môi trường, bảng đầy đủ biến env (sinh từ code), chọn overlay compose, quản lý secret |
-| [runbook.md](runbook.md) | Triệu chứng → hành động. Cây chẩn đoán, bảng 15 sự cố, **rollback**, backup/restore |
-| [rule.md](rule.md) | Code trông như thế nào. Naming, xử lý lỗi, comment, cấm gì, xử lý file lớn, truy vấn DB |
-
-### B5 — Develop
+### 3. Môi trường, Docker & Vận hành (Environment, Docker & Ops)
 
 | File | Nội dung |
 |---|---|
-| [features.md](features.md) | **Đang có gì.** Kiểm kê 13 khối chức năng đối chiếu thẳng với code, mỗi khối kèm trạng thái ✅/🟨/⬜, phần kiểm thử phủ tới đâu, và **bảng "chưa có" nói thẳng** |
-| [plan.md](plan.md) | 14 task xếp P0/P1/P2, mỗi task có DoD, sơ đồ phụ thuộc, task rủi ro cao không giao AI |
-| [learn.md](learn.md) | 17 bài học kèm triệu chứng và những hướng **không** hiệu quả |
-| [changelog.md](changelog.md) | Theo ngày, nhóm Added/Changed/Fixed/Removed, breaking in đậm riêng |
-| [checklist.md](checklist.md) | 4 cổng chặn + bảng đồng bộ tài liệu + **checklist riêng cho 5 vùng nguy hiểm** |
+| [environment.md](environment.md) | Quản lý biến môi trường cho 3 môi trường (Local, Staging, Prod), bảng tra cứu chi tiết các biến cấu hình (`.env.api`, `.env.worker`, `deploy/.env`). |
+| [docker.md](docker.md) | Nền tảng Docker & Docker Compose, 7 image của dự án, cơ chế ghép file compose overlay, phân biệt dữ liệu trong image vs 3 volume (`worker-avd`, `db-data`, `artifacts-data`), dọn dẹp đĩa an toàn, KVM. |
+| [avd-seed.md](avd-seed.md) | **Chủ sở hữu duy nhất** về seed AVD (`avd-seed.tar.gz` ~2.4GB): cách snapshot phiên đăng nhập Google Play, nhúng vào Docker image của worker và cơ chế `--no-build`. |
+| [emu-gui-workflow.md](emu-gui-workflow.md) | Toàn cảnh 3 giai đoạn (dựng local → lên VPS lần đầu → CI tự động), cơ chế noVNC GUI (`WORKER_GUI=on`) trên cổng 6080 để đăng nhập Google Play thủ công khi cần. |
+| [domain-setup.md](domain-setup.md) | Hướng dẫn đưa API ra Internet an toàn qua Cloudflare Tunnel (Quick Tunnel vs Named Tunnel), cấu hình WAF chặn endpoint nội bộ, thông tin bàn giao cho đối tác. |
+| [runbook.md](runbook.md) | Cẩm nang xử lý sự cố vận hành: cây chẩn đoán triệu chứng → hành động, bảng 15 sự cố thường gặp, quy trình rollback, sao lưu và phục hồi CSDL (backup/restore). |
 
-### B7 — Test / Deploy / Security
+### 4. Kiểm thử, CI/CD, Bảo mật & Nhật ký (Quality, Security & Changelog)
 
 | File | Nội dung |
 |---|---|
-| [test-case.md](test-case.md) | ~120 case có ID, phân loại tự động / thủ công, mục tiêu coverage theo vùng |
-| [docker.md](docker.md) | Nền tảng Docker cho người chưa có nền. 4 khái niệm, **bảng 7 image của dự án**, cách ghép 6 file compose, 3 con đường deploy, volume nào mất là mất thật, dọn đĩa an toàn, 6 cạm bẫy |
-| [emu-gui-workflow.md](emu-gui-workflow.md) | Toàn cảnh 3 giai đoạn: dựng → lên VPS lần đầu → CI tự động. **4 hiểu nhầm thường gặp**, và **đánh giá thẳng quy trình này chuyên nghiệp tới đâu** |
-| [avd-seed.md](avd-seed.md) | **Chủ sở hữu duy nhất** của mọi thứ về seed AVD, worker image và cờ `--no-build`. Cách chụp seed, vì sao CI không build worker, **4 chế độ hỏng đều im lặng**, 3 điều dễ mất tiền |
-| [deploy-vps.md](deploy-vps.md) | VPS trắng → stack chạy được bằng `deploy/bootstrap.sh`. Tự chứa: Postgres self-host, **một bước tay duy nhất** (đăng nhập CH Play) |
-| [public-access.md](public-access.md) | Đường ra Internet **chính thức**: Cloudflare Tunnel. Quick vs named, chuyển quick→named, vì sao bỏ Caddy, **giới hạn phải biết trước khi đưa cho đối tác** |
-| [CI-CD.md](CI-CD.md) | 4 job đang chạy, secret cần có, rollback, **4 khoảng trống đã biết** |
-| [security.md](security.md) | Ranh giới tin cậy, ma trận quyền, 7 chốt đã có, **8 nợ bảo mật ghi thẳng**, checklist trước khi mở public |
+| [test-case.md](test-case.md) | Danh mục ~120 test case có mã định danh ID, phân loại kiểm thử tự động / thủ công, mục tiêu độ phủ (coverage) theo từng phân vùng logic. |
+| [CI-CD.md](CI-CD.md) | Pipeline tự động hoá GitHub Actions (lint, typecheck, test, build container, scan), quản lý secrets CI/CD. |
+| [security.md](security.md) | Ranh giới tin cậy, ma trận phân quyền, xác thực Bearer token constant-time SHA-256, chữ ký HMAC cho link tải artifact, danh sách nợ bảo mật đã biết. |
+| [changelog.md](changelog.md) | Nhật ký thay đổi theo ngày, phân loại Added / Changed / Fixed / Removed, đánh dấu các thay đổi breaking. |
 
 ---
 
@@ -88,134 +68,94 @@ Backend thuần — **không có dashboard**, không có tài khoản, người 
 
 ```mermaid
 flowchart TD
-    REQ["requirements.md<br/>làm cái gì"]
-    CTX["context.md<br/>ranh giới"]
-    PRO["api-prototype.md<br/>dùng thế nào"]
+    REQ["requirements.md<br/>Yêu cầu & output layout"]
+    CTX["context.md<br/>Ranh giới hệ thống"]
+    FEAT["features.md<br/>Kiểm kê chức năng"]
 
-    ARC["architecture.md<br/>chia thành gì"]
-    API["api-design.md<br/>hợp đồng HTTP"]
-    DB["database-design.md<br/>schema"]
-    ART["artifact-design.md<br/>hình dạng đầu ra"]
-    FS["folder-struc.md<br/>cái gì ở đâu"]
+    ARC["architecture.md<br/>Kiến trúc 5 khối"]
+    API["http-endpoints.md<br/>Đặc tả 23 endpoint"]
+    DB["database-design.md<br/>Schema DB & claim_job"]
+    ART["artifact-design.md<br/>Hình dạng đầu ra & selector"]
+    FS["folder-struc.md<br/>Cấu trúc thư mục"]
 
-    ENV["environment.md<br/>biến + môi trường"]
-    KS["kick-start.md<br/>dựng từ đầu"]
-    RB["runbook.md<br/>khi hỏng"]
+    ENV["environment.md<br/>Biến môi trường"]
+    DK["docker.md<br/>Nền tảng Docker & compose"]
+    SEED["avd-seed.md<br/>Seed AVD & no-build"]
+    WF["emu-gui-workflow.md<br/>Quy trình noVNC GUI"]
+    DOM["domain-setup.md<br/>Cloudflare Tunnel"]
+    RB["runbook.md<br/>Cẩm nang sự cố"]
 
-    RULE["rule.md<br/>code trông sao"]
-    SP["system-prompt.md<br/>AI cư xử sao"]
-    CHK["checklist.md<br/>cổng chặn"]
+    TC["test-case.md<br/>Danh mục test case"]
+    CI["CI-CD.md<br/>Pipeline GitHub Actions"]
+    SEC["security.md<br/>Mô hình bảo mật"]
+    CL["changelog.md<br/>Nhật ký thay đổi"]
 
-    TC["test-case.md"]
-    CI["CI-CD.md"]
-    SEC["security.md"]
-
-    FEAT["features.md<br/>đang có gì"]
-    PLAN["plan.md<br/>làm gì tiếp"]
-    LEARN["learn.md<br/>đã hỏng gì"]
-    CL["changelog.md"]
-
-    DK["docker.md<br/>nền tảng Docker"]
-    WF["emu-gui-workflow.md<br/>toàn cảnh 3 giai đoạn"]
-    SEED["avd-seed.md<br/>phiên Google Play"]
-    DVP["deploy-vps.md<br/>từng lệnh trên VPS"]
-    PUB["public-access.md<br/>đường ra Internet"]
-
+    %% Requirements & Design flow
     REQ --> CTX --> ARC
-    REQ --> PRO --> API
     ARC --> API & DB & ART & FS
     ART --> API
-    ARC --> ENV --> KS & RB & CI
-    FS --> RULE --> CHK
-    SP --> CHK
     API & DB & ART --> TC --> CI
     API & ART --> SEC
-    LEARN --> SP
-    LEARN --> PLAN
-    CHK --> PLAN
-    ARC & API & TC & CI --> FEAT --> PLAN
-    PLAN --> CL
 
-    ENV --> DK --> WF --> DVP --> PUB
-    DK --> SEED --> DVP
-    SEED --> CI
-    PUB --> SEC
+    %% Ops & Environment flow
+    ARC --> ENV --> DK
+    DK --> SEED --> WF --> DOM
+    DOM --> SEC
     DK --> RB
+    ENV --> RB
+
+    %% Status & Progress
+    ARC & API & TC & CI --> FEAT --> CL
 
     classDef entry fill:#eef,stroke:#557,stroke-width:2px
     classDef owner fill:#ffe,stroke:#a85,stroke-width:2px
-    class REQ,PRO,RB entry
-    class DK,SEED owner
+    class REQ,CTX,RB entry
+    class DK,SEED,DOM,API owner
 ```
-
-Hai ô vàng là **file chủ**: `docker.md` giữ mọi sự thật về Docker/compose/volume,
-`avd-seed.md` giữ mọi sự thật về seed và worker image. File khác trỏ về, không
-chép lại — xem bảng dưới.
 
 ---
 
 ## Chủ sở hữu sự thật — mỗi thứ chỉ có MỘT chỗ để sửa
 
-Mảng deploy từng bị chép lại ở 7 file: `compose.kvm` xuất hiện ở 13 file,
-`COMPOSE_FILE` ở 12, `Docker Hub` ở 12. Hậu quả là đổi một cờ compose phải sửa
-mười chỗ, và thực tế là **quên** — biến `EMULATOR_SCREEN_OFF_TIMEOUT` thêm ngày
-2026-08-12 chỉ được ghi vào `changelog.md`.
+Để tránh việc sửa một chỗ mà quên chỗ khác, mỗi mảng kiến thức kỹ thuật có đúng một file làm chủ sở hữu duy nhất (Single Source of Truth). File khác cần nhắc tới chỉ **trỏ link**, không sao chép lại:
 
-Từ giờ mỗi sự thật có đúng một chủ. Cần nhắc lại ở file khác thì **trỏ link**,
-không chép nội dung:
-
-| Sự thật | Chủ sở hữu |
+| Sự thật | Chủ sở hữu duy nhất |
 |---|---|
-| Khái niệm Docker · 7 image của dự án · tên/tag/registry | [docker.md §1–2, §8](docker.md) |
-| Ghép file compose · `COMPOSE_FILE` · dấu phân cách theo OS · profile | [docker.md §4](docker.md) |
-| Volume nào chứa gì · trong image vs trong volume · cờ `-v` | [docker.md §6](docker.md) |
-| `KVM_GID` lấy đúng cách · cạm bẫy đặc thù Docker | [docker.md §10](docker.md) |
-| Seed AVD · `--no-build` · vì sao CI không build worker | [avd-seed.md](avd-seed.md) |
-| Bảng biến môi trường · mặc định · biến nào throw lúc boot | [environment.md §2–3](environment.md) |
-| Triệu chứng → xử lý · cây chẩn đoán · backup/restore | [runbook.md](runbook.md) |
-| Đăng nhập Google Play qua noVNC (quy trình) | [deploy-vps.md §4](deploy-vps.md) |
-| Đường ra Internet · quick vs named · đổi `API_TOKEN` sau HTTP trần | [public-access.md](public-access.md) |
-| Đặc tả 23 endpoint · mã lỗi · selector | [api-design.md](api-design.md) |
-| Đổi code thì phải sửa doc nào | [checklist.md §5](checklist.md) |
+| Khái niệm Docker · 7 image của dự án · ghép compose · volume · KVM | [docker.md](docker.md) |
+| Seed AVD (`avd-seed.tar.gz`) · nhúng image · cờ `--no-build` | [avd-seed.md](avd-seed.md) |
+| Đưa API ra Internet qua Cloudflare Tunnel · Quick vs Named · bàn giao đối tác | [domain-setup.md](domain-setup.md) |
+| Đặc tả 23 API endpoint · request/response schema · mã lỗi · selector | [http-endpoints.md](http-endpoints.md) |
+| Thiết kế CSDL Postgres · 5 bảng · hàm `claim_job()` · RLS · PostgREST | [database-design.md](database-design.md) |
+| Cấu trúc thư mục artifact · tên file hợp đồng · 8 selector download | [artifact-design.md](artifact-design.md) |
+| Bảng biến môi trường đầy đủ · giá trị mặc định · biến throw khi boot | [environment.md](environment.md) |
+| Cây thư mục repo · nhiệm vụ từng thư mục · quy tắc phụ thuộc | [folder-struc.md](folder-struc.md) |
+| Xử lý sự cố · cây chẩn đoán triệu chứng · backup & restore DB | [runbook.md](runbook.md) |
+| Quy trình noVNC GUI · 3 giai đoạn môi trường emulator | [emu-gui-workflow.md](emu-gui-workflow.md) |
+| Danh mục ~120 test case · phân loại tự động / thủ công · độ phủ | [test-case.md](test-case.md) |
+| Pipeline GitHub Actions · build container · quản lý secrets | [CI-CD.md](CI-CD.md) |
+| Ranh giới tin cậy · xác thực token · HMAC signed URL · nợ bảo mật | [security.md](security.md) |
+| Kiểm kê tính năng đang có · trạng thái hoàn thành | [features.md](features.md) |
+| Lịch sử thay đổi codebase theo ngày | [changelog.md](changelog.md) |
 
-`deploy/README.md` chỉ giữ thứ **đặc thù máy dev này** (số cổng, `KVM_GID=991`,
-cấu hình đo được), không giữ kiến thức chung.
+> **Lưu ý**: [`deploy/README.md`](../deploy/README.md) chỉ giữ thông tin **thao tác đặc thù trên máy dev này** (số cổng bind, `COMPOSE_FILE`, cấu hình đo được), không chứa lý thuyết chung.
 
 ---
 
-## Hai điều cần biết trước khi sửa gì
+## Nguyên tắc tài liệu
 
-**1. `new_setup/` là nguồn gốc, `docs/` là tài liệu sống.**
+1. **`docs/` là tài liệu sống duy nhất**: Mọi thay đổi về code, API, cấu hình hay quy trình deploy đều phải được cập nhật tương ứng vào `docs/`.
+2. **Doc sai nguy hiểm hơn doc thiếu**: Tài liệu phản ánh chính xác trạng thái thực tế của code. Khi sửa code, luôn đối chiếu bảng phân quyền sở hữu sự thật để cập nhật đúng file chủ.
 
-`new_setup/` chứa 10 file ghi chú thiết kế viết trong lúc dựng hệ thống. Chất lượng cao nhưng không có mục lục, trùng lặp giữa các file, và đã lệch với code ở vài chỗ. **Không sửa nó** — nó là bản ghi lịch sử. Mọi cập nhật vào `docs/`.
-
-**2. Doc sai nguy hiểm hơn doc thiếu, vì AI tin doc.**
-
-Bằng chứng có thật trong repo này: `new_setup/api-endpoint.md §4` hứa `pnpm test:endpoints` chạy được, trong khi bộ test đã bị xoá trong commit `ef53f90`. Ai đọc cũng tin là có test phủ 23 endpoint.
-
-Bảng đồng bộ ở [checklist.md §5](checklist.md) nói rõ đổi gì thì phải sửa file nào.
-
----
-
-## Trạng thái tài liệu
-
-Đối chiếu với code tại commit `ef53f90` (2026-08-10). Index GitNexus: 628 nodes, 1013 edges, 22 clusters, 18 flows.
-
-Sáu chỗ tài liệu cũ lệch với code đã được xử lý: bộ test bị xoá, `.env.api.example` thiếu 5 biến, `ARTIFACT_TTL_HOURS` lệch, URL tunnel đã chết, số liệu GitNexus trong `CLAUDE.md` cũ, cây thư mục thiếu 3 nhánh. Chi tiết và thứ tự sửa ở [plan.md](plan.md).
-
-**Cập nhật 2026-08-12** — bốn chỗ lệch với *môi trường thật* (không phải với code) đã sửa:
-
-| Chỗ lệch | Đã sửa ở |
-|---|---|
-| `deploy/README.md` mô tả distro WSL `Ubuntu-24.04` — distro đó đã bị xoá, engine thật là Docker Desktop | [`../deploy/README.md`](../deploy/README.md) viết lại, WSL hạ xuống mục 8 |
-| Cách lấy `KVM_GID` sai (hỏi host thay vì hỏi docker engine) | [docker.md §10](docker.md), [`../deploy/README.md` §4](../deploy/README.md) |
-| Dấu phân cách `COMPOSE_FILE` phụ thuộc OS — chưa từng được ghi | [docker.md §10](docker.md), [`../deploy/README.md`](../deploy/README.md) |
-| `deploy-vps.md` giả định VPS đạt chuẩn; máy đích thật 2 vCPU / 3.9 GB và dùng chung với project khác | [deploy-vps.md §1](deploy-vps.md) |
-
-Kèm theo: [docker.md §8](docker.md) thêm cảnh báo Docker Hub tự tạo repo **public**, [learn.md](learn.md) thêm 5 mục, [system-prompt.md](system-prompt.md) thêm 6 dòng vào bảng cạm bẫy.
-
-Kiểm tài liệu còn khớp code:
+Các lệnh kiểm tra tính đúng đắn của codebase:
 
 ```bash
-node .gitnexus/run.cjs status --repo app-relay
+# Kiểm tra type toàn bộ monorepo
+pnpm typecheck
+
+# Chạy test suite
+pnpm test
+
+# Chạy probe kiểm tra endpoints
+pnpm probe:endpoints
 ```
+

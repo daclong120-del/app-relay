@@ -34,7 +34,7 @@ services:
       api:
         condition: service_healthy
     networks:
-      - app-relay
+      - internal
 
   cloudflared-named:
     image: cloudflare/cloudflared:latest
@@ -54,4 +54,4 @@ services:
       api:
         condition: service_healthy
     networks:
-      - app-relay
+      - internal

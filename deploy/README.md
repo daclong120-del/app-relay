@@ -11,20 +11,27 @@ này. Phần nền tảng và lý do thiết kế nằm ở [`../docs/docker.md`
 
 > **Bản trước của file này mô tả một distro WSL `Ubuntu-24.04`. Distro đó đã bị
 > xoá ngày 2026-08-12.** Engine thật là **Docker Desktop** trên Windows — nó giữ
-> image `app-relay-worker` và cả ba volume, gồm `deploy_worker-avd` chứa phiên
+> image `app-relay-worker` và cả ba volume, gồm `app-relay_worker-avd` chứa phiên
 > đăng nhập CH Play. Một distro WSL cài `docker` riêng là **engine khác**, có
 > image và volume riêng; đừng nhầm hai chỗ đó với nhau.
 
 Thư mục làm việc cho mọi lệnh dưới đây (PowerShell hoặc Git Bash trên Windows):
 
 ```bash
-cd d:/super-tools/app-relay/deploy
+cd d:/super-tools/app-relay/project/deploy
 ```
 
-`deploy/.env` đã có sẵn `COMPOSE_FILE=compose.yml;compose.kvm.yaml`, nên **không
-cần cờ `-f`** — cứ `docker compose ...` là đúng bộ overlay. Dấu ở đây là `;` vì
-docker CLI gọi từ Windows; luật đầy đủ ở
+`deploy/.env` đã có sẵn `COMPOSE_FILE=compose.yml;compose.kvm.yaml;compose.tunnel.yaml`
+và `COMPOSE_PROFILES=quick`, nên **không cần cờ `-f`** — cứ `docker compose ...`
+là đúng bộ overlay. Dấu ở đây là `;` vì docker CLI gọi từ Windows; luật đầy đủ ở
 [`../docs/docker.md` §4](../docs/docker.md).
+
+> **`.env`, `.env.api`, `.env.worker` bị `.gitignore` chặn nên KHÔNG đi theo khi
+> chép/dời thư mục repo.** Dời repo từ `app-relay/` sang `app-relay/project/`
+> ngày 2026-08-17 làm mất cả ba; phải trích lại từ container đang chạy
+> (`docker inspect <container> --format '{{range .Config.Env}}{{println .}}{{end}}'`).
+> Container đã tắt hết rồi mới phát hiện thì mất luôn `API_TOKEN` và
+> `WORKER_TOKEN`. Dời repo thì chép tay ba file đó trước.
 
 ---
 
@@ -105,20 +112,20 @@ chỉ hiện dòng của supervisor. Output thật của emulator và worker Nod
 file AUTO của supervisor bên trong container:
 
 ```bash
-docker exec deploy-worker-1 bash -c 'tail -f /tmp/worker-node-stdout*.log'
-docker exec deploy-worker-1 bash -c 'tail -30 /tmp/worker-node-stderr*.log'
-docker exec deploy-worker-1 bash -c 'tail -30 /tmp/x11vnc-stderr*.log'
+docker exec app-relay-worker-1 bash -c 'tail -f /tmp/worker-node-stdout*.log'
+docker exec app-relay-worker-1 bash -c 'tail -30 /tmp/worker-node-stderr*.log'
+docker exec app-relay-worker-1 bash -c 'tail -30 /tmp/x11vnc-stderr*.log'
 ```
 
 ### Thao tác với emulator
 
 ```bash
-docker exec deploy-worker-1 adb devices
-docker exec deploy-worker-1 adb shell getprop sys.boot_completed   # 1 = boot xong
-docker exec deploy-worker-1 kvm-ok                                 # xác nhận tăng tốc KVM
+docker exec app-relay-worker-1 adb devices
+docker exec app-relay-worker-1 adb shell getprop sys.boot_completed   # 1 = boot xong
+docker exec app-relay-worker-1 kvm-ok                                 # xác nhận tăng tốc KVM
 
 # Chụp màn hình Android ra file trên Windows
-docker exec deploy-worker-1 adb exec-out screencap -p > screen.png
+docker exec app-relay-worker-1 adb exec-out screencap -p > screen.png
 ```
 
 `adb exec-out screencap` chạy được cả khi `WORKER_GUI=off` — nó đọc framebuffer
@@ -258,7 +265,7 @@ Nếu gõ `localhost` thay vì `127.0.0.1` thì lại là chuyện khác hẳn, 
 Kiểm tra xem đã từng có phiên VNC nào chưa:
 
 ```bash
-docker exec deploy-worker-1 bash -c 'grep -c "Got connection" /tmp/x11vnc-stderr*.log'
+docker exec app-relay-worker-1 bash -c 'grep -c "Got connection" /tmp/x11vnc-stderr*.log'
 ```
 
 Ra `0` nghĩa là trình duyệt chưa từng kết nối — dùng URL có `autoconnect=true`.
@@ -277,8 +284,8 @@ abseil trong `emulator/lib64` và chỉ resolve lúc chạy qua `LD_LIBRARY_PATH
 **Emulator chạy nhưng chậm bất thường.** Kiểm tra KVM:
 
 ```bash
-docker exec deploy-worker-1 kvm-ok
-docker exec deploy-worker-1 bash -c 'pgrep -a qemu-system' | grep -o '\-accel [a-z]*'
+docker exec app-relay-worker-1 kvm-ok
+docker exec app-relay-worker-1 bash -c 'pgrep -a qemu-system' | grep -o '\-accel [a-z]*'
 ```
 
 Phải ra `KVM acceleration can be used` và `-accel on`. Nếu không thì `KVM_GID`
@@ -289,7 +296,7 @@ cài trong một distro WSL — **Docker Desktop không dính chuyện này**. T
 và cách giữ distro sống: [`../docs/runbook.md` §3](../docs/runbook.md).
 
 **Worker online nhưng không nhận job.** So `WORKER_TOKEN` giữa `.env.api` và
-`.env.worker`, rồi xem `docker exec deploy-worker-1 bash -c 'tail -50 /tmp/worker-node-stdout*.log'`.
+`.env.worker`, rồi xem `docker exec app-relay-worker-1 bash -c 'tail -50 /tmp/worker-node-stdout*.log'`.
 
 ---
 
@@ -301,9 +308,11 @@ và cách giữ distro sống: [`../docs/runbook.md` §3](../docs/runbook.md).
 OS        Windows 11 Home 26100
 Engine    Docker Desktop — Server 29.6.2 (linux/amd64), context desktop-linux
 CPU/RAM   12 vCPU · 15.5 GB
-KVM       /dev/kvm có trong VM của Docker Desktop, gid 991
+KVM       /dev/kvm KHÔNG có trong VM của Docker Desktop (đo 2026-08-17) — worker
+          không khởi động được, `up -d` báo "no such file or directory".
+          CPU có vmx. Bật lại bằng ./enable-kvm.ps1. Khi có, gid là 991.
 AVD       chpay — android-35 google_apis_playstore x86_64, RAM 3072 MB, data 12G
-Container deploy-api-1 · deploy-worker-1 (+ deploy-cloudflared-quick-1 khi cần)
+Container app-relay-api-1 · app-relay-worker-1 (+ app-relay-cloudflared-quick-1 khi cần)
 Image     conghieudoan19/app-relay-worker 13.3 GB · app-relay-api 325 MB
 Dữ liệu   %LOCALAPPDATA%\Docker\wsl\disk\docker_data.vhdx (~55 GB, dùng chung
           với mọi project khác trên máy)
@@ -314,7 +323,7 @@ Máy này còn chạy stack của project khác (`release-ops`, các image
 phân biệt image nào của project nào trước khi dọn đĩa.
 
 > **Reset Docker Desktop ("Clean / Purge data") xoá sạch `docker_data.vhdx`** —
-> mất cả worker image lẫn volume `deploy_worker-avd`, tức mất phiên đăng nhập CH
+> mất cả worker image lẫn volume `app-relay_worker-avd`, tức mất phiên đăng nhập CH
 > Play. Lớp dự phòng cuối cùng là `avd-seed/avd-seed.tar.gz` trên ổ D (bị
 > `.gitignore` chặn nên không có bản nào trên git). Đừng xoá thư mục đó khi dọn dẹp.
 
@@ -326,7 +335,7 @@ phân biệt image nào của project nào trước khi dọn đĩa.
 
 Một distro WSL cài `docker` riêng là **engine hoàn toàn tách biệt** với Docker
 Desktop: image riêng, volume riêng. Chạy stack ở đó nghĩa là phải build/pull lại
-từ đầu và **không có** phiên đăng nhập CH Play trong `deploy_worker-avd` của
+từ đầu và **không có** phiên đăng nhập CH Play trong `app-relay_worker-avd` của
 Docker Desktop.
 
 Hai khác biệt phải nhớ nếu thật sự dùng tới:

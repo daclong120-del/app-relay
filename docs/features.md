@@ -76,7 +76,7 @@ flowchart LR
 | 10 | **Seed phiên đăng nhập CH Play** | 🟨 | `deploy/capture-avd-seed.sh`, `avd-seed/` |
 | 11 | **Deploy bằng compose overlay** — 6 file, bootstrap một lệnh | ✅ | `deploy/` |
 | 12 | **CI/CD** — 4 job | 🟨 | `.github/workflows/ci.yml` |
-| 13 | **Tài liệu** — 27 file có mục lục | ✅ | `docs/` |
+| 13 | **Tài liệu** — 19 file có mục lục | ✅ | `docs/` |
 
 Ba khối 🟨 là chỗ nên nhìn kỹ nhất — chi tiết ở §4 và §5.
 
@@ -115,11 +115,11 @@ Một nguồn sự thật cho cả API lẫn worker. Đổi ở đây là hai b�
 | | `POST /v1/jobs/:jobId/artifact/download-url` | Xin URL ký sẵn theo `select` hoặc `path` |
 | Artifacts | `GET /v1/artifacts/:artifactId/download` | Endpoint **duy nhất không cần Bearer** — xác thực bằng chữ ký trong URL |
 
-Hợp đồng đầy đủ (mã lỗi, shape response) ở [api-design.md](api-design.md); ví dụ bash chạy được ở [api-prototype.md](api-prototype.md).
+Hợp đồng đầy đủ (mã lỗi, shape response) ở [http-endpoints.md](http-endpoints.md); mô tả định dạng artifact ở [artifact-design.md](artifact-design.md).
 
 ### 3.3 ✅ API internal `/internal/v1` — 9 endpoint
 
-Chỉ worker gọi. Caddy chặn `/internal/*` ở lớp ngoài (404) nên không có đường vào từ Internet — nhưng lưu ý: **bỏ Caddy đi (chạy Cloudflare Tunnel thẳng) là mất lớp chặn này**, xem [public-access.md](public-access.md).
+Chỉ worker gọi. Caddy chặn `/internal/*` ở lớp ngoài (404) nên không có đường vào từ Internet — nhưng lưu ý: **bỏ Caddy đi (chạy Cloudflare Tunnel thẳng) thì cần cấu hình Cloudflare WAF chặn endpoint `/internal/*`**, xem [domain-setup.md §4](domain-setup.md).
 
 | Endpoint | Việc |
 |---|---|
@@ -141,7 +141,7 @@ Chỉ worker gọi. Caddy chặn `/internal/*` ở lớp ngoài (404) nên khôn
 
 Cả hai lớp Bearer so sánh bằng `timingSafeEqual` **sau khi hash sha256 hai vế** — làm vậy buffer luôn 32 byte nên độ dài token không rò ra ngoài qua thời gian so sánh. Chi tiết ở `apps/api/src/middleware/auth.ts:11-18`.
 
-**Giới hạn đã biết:** bản 1.0 cố ý dùng **một** `API_TOKEN` chung cho mọi đối tác. Tách token theo đối tác là T-14 trong [plan.md](plan.md), chưa làm.
+**Giới hạn đã biết:** bản 1.0 cố ý dùng **một** `API_TOKEN` chung cho mọi đối tác. Tách token theo từng đối tác đã được ghi nhận trong [security.md §4](security.md).
 
 ### 3.5 ✅ Kho artifact dạng thư mục
 
@@ -169,7 +169,7 @@ Cron nội bộ trong tiến trình API, chạy lần đầu sau 10 giây rồi 
 | `evictUnderDiskPressure()` | Đĩa gần đầy thì xoá bớt bản cũ nhất |
 | `reapStuckJobs()` | Trả job mất worker về hàng đợi |
 
-**Vì sao 🟨:** `cleanupOrphanDirs()` có ba chốt an toàn (chỉ đụng thư mục nguội quá ngưỡng · lấy mtime của file mới nhất bên trong chứ không phải thư mục gốc · query DB lỗi thì không xoá gì cả) và **cả ba đều chưa có test**. Hỏng một chốt là mất artifact hợp lệ, im lặng, không có exception. Đây là T-10 trong [plan.md](plan.md), rủi ro cao nhất trong toàn bộ danh sách còn lại.
+**Vì sao 🟨:** `cleanupOrphanDirs()` có ba chốt an toàn (chỉ đụng thư mục nguội quá ngưỡng · lấy mtime của file mới nhất bên trong chứ không phải thư mục gốc · query DB lỗi thì không xoá gì cả) và **cả ba đều chưa có unit test tự động**. Hỏng một chốt là mất artifact hợp lệ, im lặng, không có exception. Xem thêm tại [test-case.md](test-case.md) và [runbook.md](runbook.md).
 
 ### 3.7 ✅ Database
 
@@ -186,7 +186,7 @@ Cron nội bộ trong tiến trình API, chạy lần đầu sau 10 giây rồi 
 
 Chi tiết từng mệnh đề của `claim_job()` ở [database-design.md](database-design.md).
 
-**Cột chết đã biết:** `apps.artifact_size_bytes`, `workers.status='draining'`, `artifacts.state='deleted'`, `artifacts.content_type` — khai ra nhưng không code nào dùng. T-12 trong plan.
+**Cột dự phòng:** `apps.artifact_size_bytes`, `workers.status='draining'`, `artifacts.state='deleted'`, `artifacts.content_type` — khai sẵn trong schema cho mở rộng tương lai, xem chi tiết ở [database-design.md](database-design.md).
 
 ### 3.8 ✅ Worker pipeline
 
@@ -227,7 +227,7 @@ Bật/tắt màn hình bằng `deploy/gui.sh on|off` — tắt GUI **không** l�
 **Vì sao 🟨 — hai ràng buộc phải nhớ:**
 
 1. Seed **là thông tin đăng nhập Google**. Repo Docker Hub bắt buộc private. Docker Hub tự tạo repo mới theo *Default privacy* của tài khoản, mặc định **public, không hỏi, không cảnh báo**.
-2. File seed bị `.gitignore` chặn → **CI không build được worker image** (checkout từ git nên thư mục luôn rỗng). Sửa code trong `apps/worker/` thì phải build và push tay từ máy giữ seed.
+2. File seed bị `.gitignore` chặn → **CI không build được worker image** (checkout từ git nên thư mục luôn rỗng). Sửa code trong `apps/worker/` thì phải build và push tay từ máy giữ seed. Chi tiết: [avd-seed.md](avd-seed.md).
 
 ### 3.11 ✅ Deploy
 
@@ -241,7 +241,7 @@ Bật/tắt màn hình bằng `deploy/gui.sh on|off` — tắt GUI **không** l�
 | Xoay log | `compose.prod.yaml`: json-file 10m × 5 cho cả 6 service |
 | Tắt máy an toàn | `stop_grace_period: 120s` cho worker để emulator kịp ghi userdata xuống đĩa |
 
-Caddy còn trong repo nhưng đã **xuống hàng thay thế** — đường chính thức là Cloudflare Tunnel, lý do ở [public-access.md](public-access.md).
+Caddy còn trong repo nhưng đã **xuống hàng thay thế** — đường chính thức là Cloudflare Tunnel, lý do ở [domain-setup.md](domain-setup.md).
 
 ### 3.12 🟨 CI/CD — 4 job
 
@@ -257,15 +257,15 @@ Caddy còn trong repo nhưng đã **xuống hàng thay thế** — đường ch�
 | Vấn đề | Hậu quả |
 |---|---|
 | Không build worker image | Sửa code worker thì pipeline **không** đưa lên VPS; worker cũng không có tag `<sha>` để rollback |
-| CI test trên Node 20, image chạy Node 22 | Đang test trên runtime khác production (T-06) |
-| Không có smoke test sau deploy | `up -d` trả về khi container **khởi động**, không phải khi **healthy** → job xanh dù app chết (T-07) |
-| Không quét secret, không quét CVE | Bảo vệ secret dựa hoàn toàn vào `.gitignore` (T-08) |
+| CI test trên Node 20, image chạy Node 22 | Đang test trên runtime khác production |
+| Không có smoke test sau deploy | `up -d` trả về khi container **khởi động**, không phải khi **healthy** → job xanh dù app chết |
+| Không quét secret, không quét CVE | Bảo vệ secret dựa hoàn toàn vào `.gitignore` |
 
 Chi tiết ở [CI-CD.md](CI-CD.md).
 
 ### 3.13 ✅ Tài liệu
 
-27 file trong `docs/` có mục lục và sơ đồ quan hệ ở [README.md](README.md). Ngoài ra `new_setup/` giữ 10 file ghi chú gốc — **không sửa**, đó là bản ghi lịch sử.
+19 file trong `docs/` có mục lục và sơ đồ quan hệ ở [README.md](README.md). Toàn bộ tài liệu phân tích, kiến trúc và vận hành được chuẩn hoá tập trung về `docs/` làm nguồn sự thật duy nhất.
 
 ---
 
@@ -288,26 +288,24 @@ Chi tiết ở [CI-CD.md](CI-CD.md).
 | `escapePostgrestValue` — thứ tự escape | Tiêm filter |
 | `contentTypeFor` | Hồi quy CDN |
 
-Hai script test cũ (`pnpm test:endpoints`, `pnpm probe:endpoints`) **trỏ vào thư mục đã bị xoá** trong commit `ef53f90` — chạy là lỗi ngay. Đây là T-01, chưa dọn.
-
 Danh sách case đầy đủ ở [test-case.md](test-case.md).
 
 ---
 
 ## 5. Chưa có — nói thẳng
 
-Không phải bug, là **cố ý chưa làm** hoặc **biết mà chưa tới lượt**. Chi tiết và thứ tự ở [plan.md](plan.md).
+Không phải bug, là **cố ý chưa làm** hoặc **biết mà chưa tới lượt**:
 
-| Chưa có | Vì sao chưa | Task |
+| Chưa có | Vì sao chưa | Tham chiếu |
 |---|---|---|
-| Tách token theo đối tác | Bản 1.0 chỉ có một đối tác | T-14 |
-| Cảnh báo tự động (đĩa đầy, mất phiên Play, DB lỗi) | Hiện chỉ biết khi có người nhìn log | T-13 |
-| Bộ test conformance 23 endpoint | Bản cũ bị xoá, chưa dựng lại | T-11 |
-| Smoke test sau deploy | | T-07 |
-| Quét secret + CVE trong CI | | T-08 |
-| Build worker image trong CI | Vướng seed 2.5 GB không commit được | — |
-| Dashboard / tài khoản người dùng | **Ngoài phạm vi có chủ đích** — đây là backend thuần | — |
-| Nhiều worker chạy song song | Mỗi worker `maxConcurrentJobs: 1`, chưa thử nhiều worker | — |
+| Tách token theo từng đối tác | Bản 1.0 chỉ có một đối tác chung | [security.md §4](security.md) |
+| Cảnh báo tự động (đĩa đầy, mất phiên Play, DB lỗi) | Hiện chỉ biết khi có người nhìn log | [runbook.md](runbook.md) |
+| Bộ test conformance 23 endpoint | Cần hoàn thiện thêm mock suite | [test-case.md](test-case.md) |
+| Smoke test tự động sau deploy | Cần tích hợp probe script vào CI | [CI-CD.md](CI-CD.md) |
+| Quét secret + CVE tự động trong CI | Chưa tích hợp tool scan trong GitHub Actions | [CI-CD.md](CI-CD.md) · [security.md](security.md) |
+| Build worker image trong CI | Vướng seed 2.5 GB không commit được lên Git | [avd-seed.md](avd-seed.md) |
+| Dashboard / tài khoản người dùng | **Ngoài phạm vi có chủ đích** — đây là backend thuần | [context.md](context.md) |
+| Nhiều worker chạy song song | Mỗi worker `maxConcurrentJobs: 1`, chưa thử nghiệm scale worker | [architecture.md](architecture.md) |
 
 ---
 
@@ -323,14 +321,8 @@ Không phải bug, là **cố ý chưa làm** hoặc **biết mà chưa tới l�
 | Test | 50 |
 | File compose | 6 |
 | Job CI | 4 |
-| Script vận hành | `bootstrap.sh` · `gui.sh` · `capture-avd-seed.sh` |
-| Tài liệu | 27 file |
+| Script vận hành | `bootstrap.sh` · `gui.sh` · `capture-avd-seed.sh` · `enable-kvm.ps1` |
+| Tài liệu | 19 file (trong `docs/`) |
 | Index GitNexus | 628 symbol · 1013 quan hệ · 18 luồng |
 
-Đối chiếu với code tại nhánh `main`, commit `f93eb31` (2026-08-12).
-
-Kiểm lại khi nghi tài liệu đã cũ:
-
-```bash
-node .gitnexus/run.cjs status --repo app-relay
-```
+Đối chiếu với code tại nhánh `main` (tháng 08/2026).

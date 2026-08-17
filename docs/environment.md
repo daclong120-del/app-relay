@@ -91,7 +91,7 @@ Worker gọi API qua Docker network — `http://api:5500/internal/v1`. Không đ
 | `COMPOSE_FILE` | VPS — bootstrap ghi vào | danh sách overlay ngăn cách bằng `:`, compose tự đọc thay cho cờ `-f` |
 | `COMPOSE_PROFILES` | VPS — bootstrap ghi vào | `production` (bật Caddy) |
 | `KVM_GID` | luôn, nếu bật `compose.kvm.yaml` | `getent group kvm \| cut -d: -f3` (mặc định `108`) |
-| `DOCKERHUB_USERNAME` | pull image từ registry | mặc định `apprelay` |
+| `DOCKERHUB_USERNAME` | pull image từ registry | mặc định `conghieudoan19` |
 | `IMAGE_TAG` | pin version image | mặc định `latest`; rollback thì đặt bằng `github.sha` |
 | `DOMAIN` | chỉ với Caddy | `api.tenmien.com` |
 | `CADDY_EMAIL` | chỉ với Caddy | email nhận cảnh báo Let's Encrypt |

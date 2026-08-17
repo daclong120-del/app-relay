@@ -365,7 +365,7 @@ Ba loại dữ liệu, mức quan trọng rất khác nhau:
 
 ```bash
 $C stop worker      # phải dừng, không copy AVD đang chạy
-docker run --rm -v deploy_worker-avd:/data -v "$PWD:/backup" alpine \
+docker run --rm -v app-relay_worker-avd:/data -v "$PWD:/backup" alpine \
   tar czf /backup/worker-avd-$(date +%F).tar.gz -C /data .
 $C start worker
 ```
@@ -374,7 +374,7 @@ $C start worker
 
 ```bash
 $C stop worker
-docker run --rm -v deploy_worker-avd:/data -v "$PWD:/backup" alpine \
+docker run --rm -v app-relay_worker-avd:/data -v "$PWD:/backup" alpine \
   sh -c 'rm -rf /data/* && tar xzf /backup/worker-avd-YYYY-MM-DD.tar.gz -C /data'
 $C start worker
 ```

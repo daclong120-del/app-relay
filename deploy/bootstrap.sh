@@ -279,7 +279,7 @@ AUTHENTICATOR_PASSWORD=$(gen_hex 24)
 JWT_SECRET=$(gen_hex 32)
 
 # Chỉ dùng khi pull image từ registry. Bootstrap build tại chỗ nên không cần.
-DOCKERHUB_USERNAME=apprelay
+DOCKERHUB_USERNAME=conghieudoan19
 IMAGE_TAG=latest
 EOF
 
