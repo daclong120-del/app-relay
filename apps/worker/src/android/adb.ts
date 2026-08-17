@@ -136,6 +136,35 @@ export async function dismissAnrDialog(maxAttempts = 3): Promise<string> {
   return blocker;
 }
 
+/**
+ * Gỡ app khỏi thiết bị sau khi đã kéo xong APK.
+ *
+ * `/data` của emulator là tài nguyên dùng chung giữa mọi job, mà job chỉ cần
+ * app đủ lâu để `pm path` + `adb pull`. Giữ lại là rò rỉ tích luỹ: mỗi app vài
+ * trăm MB, vài chục job sau thì Play Store từ chối cài với "device is out of
+ * storage" — và lỗi đó nổ ở một job hoàn toàn khác, không dính gì tới job đã
+ * làm đầy đĩa. Rất tốn công lần ngược.
+ *
+ * Không ném lỗi: dọn dẹp thất bại không được phép làm hỏng một job đã kéo xong.
+ */
+export async function uninstallPackage(packageId: string): Promise<boolean> {
+  if (!packageId || !/^[a-zA-Z0-9._]+$/.test(packageId)) return false;
+  try {
+    // `pm uninstall` thoát mã 0 kể cả khi in "Failure", nên phải đọc output.
+    const out = await execAdb(`shell pm uninstall ${packageId}`);
+    const ok = /Success/i.test(out);
+    if (ok) {
+      console.log(`[ADB] Đã gỡ ${packageId} khỏi thiết bị.`);
+    } else {
+      console.warn(`[ADB] Gỡ ${packageId} không thành công: ${out.trim() || 'no output'}`);
+    }
+    return ok;
+  } catch (err) {
+    console.warn(`[ADB] Gỡ ${packageId} lỗi: ${err}`);
+    return false;
+  }
+}
+
 export async function getInstalledPaths(packageId: string): Promise<string[]> {
   if (!packageId || !/^[a-zA-Z0-9._]+$/.test(packageId)) {
     return [];

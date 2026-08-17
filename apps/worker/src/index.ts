@@ -4,7 +4,7 @@ import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { RelayApiClient } from './relay-api/client.js';
 import { scrapePlayStoreListing } from './pipeline/scraper.js';
-import { isDeviceReady, wakeAndUnlockDevice } from './android/adb.js';
+import { isDeviceReady, wakeAndUnlockDevice, uninstallPackage } from './android/adb.js';
 import { ensureAppInstalled } from './pipeline/installer.js';
 import { pullApkAndMetadata, validateZipArchive } from './pipeline/puller.js';
 
@@ -295,6 +295,14 @@ async function processJob(job: any) {
     }
   } finally {
     heartbeatCtrl.stop();
+
+    // Dọn cả hai phía: thư mục làm việc trên host, và app trên thiết bị.
+    //
+    // Ở finally chứ không phải sau bước pull, vì job fail giữa chừng vẫn có
+    // thể đã kịp cài xong app — đó chính là trường hợp làm đầy /data nhanh
+    // nhất, do nó lặp lại 3 lần theo max_attempts.
+    await uninstallPackage(packageId);
+
     try {
       if (existsSync(pkgWorkDir)) {
         await fs.rm(pkgWorkDir, { recursive: true, force: true }).catch(() => {});
@@ -314,9 +322,30 @@ async function startWorkerLoop() {
   startHeartbeatLoop();
 
   let consecutiveErrors = 0;
+  let pausedForDevice = false;
 
   while (!isShuttingDown) {
     try {
+      // Không nhận job khi chưa có thiết bị.
+      //
+      // Emulator chết mà worker vẫn nhận thì mỗi job đốt sạch 3 attempt rồi
+      // fail với "No ADB device available" — lỗi đúng nhưng vô dụng, vì nó tả
+      // triệu chứng ở job chứ không nói máy đang hỏng. Cả hàng đợi bị dọn sạch
+      // trong vài phút và không job nào retry lại được. Đứng chờ ở đây rẻ hơn
+      // nhiều: supervisord đang bật lại emulator, job vẫn nằm nguyên trong queue.
+      if (!(await isDeviceReady())) {
+        if (!pausedForDevice) {
+          console.warn('[Worker] Không có ADB device — tạm dừng nhận job, chờ emulator sống lại.');
+          pausedForDevice = true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+        continue;
+      }
+      if (pausedForDevice) {
+        console.log('[Worker] ADB device đã trở lại — nhận job tiếp.');
+        pausedForDevice = false;
+      }
+
       const job = await client.claimJob(WORKER_ID);
       consecutiveErrors = 0;
       if (job) {
