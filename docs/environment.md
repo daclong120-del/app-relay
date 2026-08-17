@@ -10,12 +10,17 @@ Bảng biến dưới đây sinh từ `grep process.env` trong code, **không** 
 |---|---|---|---|
 | Docker | Docker Desktop | Docker Engine trong distro | Docker Engine |
 | API nghe ở | `127.0.0.1:5500` | `127.0.0.1:5500` | `127.0.0.1:5500` |
-| Đường ra ngoài | không | cloudflared quick/named | Caddy `--profile production` |
-| TLS | không | Cloudflare lo | Caddy + Let's Encrypt |
+| Đường ra ngoài | không | cloudflared quick/named | nginx trên VM → `127.0.0.1:5500` |
+| TLS | không | Cloudflare lo | Cloudflare lo (origin chạy HTTP trần) |
 | Supabase | `compose.supabase.yaml` | tuỳ | Cloud |
 | KVM | thường không | tuỳ máy | bắt buộc |
 | noVNC | `localhost:6080` | `localhost:6080` | qua SSH tunnel |
-| Ai truy cập | mình | mình + đối tác qua tunnel | đối tác qua domain |
+| Ai truy cập | mình | mình + đối tác qua tunnel | đối tác qua `https://app-relay.lutech.vn` |
+
+> **VPS production không chạy Caddy.** nginx cài thẳng trên VM đã giữ cổng 80 và
+> làm luôn phần reverse proxy; Caddy trong `compose.yml` nằm sau
+> `profiles: [production]` nên mặc định không lên. Toàn bộ đường ra Internet —
+> ba lớp Cloudflare → nginx host → nginx VM — ở [domain-setup.md](domain-setup.md).
 
 **Không chạy song song Docker Desktop và Docker trong WSL.** Các distro WSL2 dùng chung network namespace nên sẽ tranh cổng 5500, 6080, 54322. Dừng một bên trước bằng `stop` (không phải `down -v`).
 
@@ -89,13 +94,19 @@ Worker gọi API qua Docker network — `http://api:5500/internal/v1`. Không đ
 | Biến | Dùng khi | Lấy bằng |
 |---|---|---|
 | `COMPOSE_FILE` | VPS — bootstrap ghi vào | danh sách overlay ngăn cách bằng `:`, compose tự đọc thay cho cờ `-f` |
-| `COMPOSE_PROFILES` | VPS — bootstrap ghi vào | `production` (bật Caddy) |
+| `COMPOSE_PROFILES` | VPS — bootstrap ghi vào | **để trống** khi dùng nginx; `production` mới bật Caddy |
 | `KVM_GID` | luôn, nếu bật `compose.kvm.yaml` | `getent group kvm \| cut -d: -f3` (mặc định `108`) |
 | `DOCKERHUB_USERNAME` | pull image từ registry | mặc định `conghieudoan19` |
 | `IMAGE_TAG` | pin version image | mặc định `latest`; rollback thì đặt bằng `github.sha` |
-| `DOMAIN` | chỉ với Caddy | `api.tenmien.com` |
+| `DOMAIN` | **chỉ với Caddy** — để trống khi dùng nginx | `api.tenmien.com` |
 | `CADDY_EMAIL` | chỉ với Caddy | email nhận cảnh báo Let's Encrypt |
 | `CLOUDFLARE_TUNNEL_TOKEN` | chỉ với named tunnel | Cloudflare Dashboard → Zero Trust → Networks → Tunnels |
+
+> Tên miền phục vụ đối tác **không** đọc từ `DOMAIN`. Nó nằm ở `server_name`
+> trong [`../deploy/nginx/app-relay.conf`](../deploy/nginx/app-relay.conf), còn
+> `DOMAIN` chỉ được Caddyfile dùng. Điền `DOMAIN` mà vẫn chạy nginx là vô hại
+> ngay lúc đó, nhưng lần chạy `bootstrap.sh` sau sẽ bật `--profile production`
+> và Caddy tranh cổng 80 với nginx.
 | `POSTGRES_PASSWORD` | chỉ với Supabase self-host | tự sinh |
 | `AUTHENTICATOR_PASSWORD` | chỉ với Supabase self-host | tự sinh |
 | `JWT_SECRET` | chỉ với Supabase self-host | tự sinh |
@@ -111,7 +122,7 @@ Worker gọi API qua Docker network — `http://api:5500/internal/v1`. Không đ
 | `compose.kvm.yaml` | `/dev/kvm`, `group_add: KVM_GID`, `EMULATOR_ACCEL=on` | máy có `/dev/kvm` |
 | `compose.supabase.yaml` | `db` (postgres:16) + `rest` (postgrest) + gateway | không dùng Supabase Cloud |
 | `compose.prod.yaml` | xoay log json-file, healthcheck cho caddy, `stop_grace_period` 120s cho worker | chạy dài ngày trên VPS |
-| `compose.tunnel.yaml` | `cloudflared-quick` / `cloudflared-named` | không có IP public |
+| `compose.tunnel.yaml` | `cloudflared-quick` / `cloudflared-named` | máy dev sau NAT — **production không dùng**, xem [domain-setup.md §8](domain-setup.md) |
 
 > Trên VPS thì **không phải gõ chuỗi `-f` này**. `deploy/bootstrap.sh` ghi
 > `COMPOSE_FILE` và `COMPOSE_PROFILES` vào `deploy/.env`, compose tự đọc — sau
@@ -122,18 +133,24 @@ Worker gọi API qua Docker network — `http://api:5500/internal/v1`. Không đ
 
 ```mermaid
 flowchart TD
-    Q{"Có IP public<br/>và domain?"}
-    Q -->|"có"| CADDY["--profile production<br/>Caddy 80/443<br/>Let's Encrypt"]
-    Q -->|"không"| T{"Cần URL cố định?"}
+    Q{"Đã có nginx<br/>trên máy?"}
+    Q -->|"có — VPS hiện tại"| NGINX["COMPOSE_PROFILES trống<br/>nginx giữ cổng 80<br/>deploy/nginx/app-relay.conf"]
+    Q -->|"không"| Q2{"Có IP public<br/>và domain?"}
+    Q2 -->|"có"| CADDY["--profile production<br/>Caddy 80/443<br/>Let's Encrypt"]
+    Q2 -->|"không"| T{"Cần URL cố định?"}
     T -->|"chỉ thử vài tiếng"| QUICK["-f compose.tunnel.yaml<br/>--profile quick<br/>URL ngẫu nhiên, đổi mỗi lần chạy"]
     T -->|"tích hợp thật"| NAMED["-f compose.tunnel.yaml<br/>--profile named<br/>cần CLOUDFLARE_TUNNEL_TOKEN"]
 
+    NGINX -.->|"KHÔNG chạy cùng — tranh cổng 80"| CADDY
     CADDY -.->|"KHÔNG chạy cùng"| QUICK
     CADDY -.->|"KHÔNG chạy cùng"| NAMED
     QUICK -.->|"KHÔNG chạy cùng"| NAMED
+
+    classDef now fill:#eef,stroke:#557,stroke-width:2px
+    class NGINX now
 ```
 
-Cả ba dịch vụ đều nằm sau profile nên mặc định không cái nào chạy. `compose.yml` trần chỉ có `api` + `worker`, nghe ở `127.0.0.1`.
+Cả ba dịch vụ trong compose đều nằm sau profile nên mặc định không cái nào chạy. `compose.yml` trần chỉ có `api` + `worker`, nghe ở `127.0.0.1` — đúng thứ nginx cần, vì nginx gọi qua loopback của chính máy đó.
 
 ### Lệnh mẫu
 
@@ -142,7 +159,11 @@ Cả ba dịch vụ đều nằm sau profile nên mặc định không cái nào
 docker compose -f compose.yml -f compose.kvm.yaml -f compose.supabase.yaml \
   -f compose.tunnel.yaml --profile quick up -d
 
-# VPS production, Supabase Cloud, Caddy
+# VPS production hiện tại: nginx đứng trước, không profile nào cả
+docker compose -f compose.yml -f compose.kvm.yaml -f compose.supabase.yaml \
+  -f compose.prod.yaml up -d
+
+# VPS không có nginx sẵn, để Caddy tự xin cert
 docker compose -f compose.yml -f compose.kvm.yaml --profile production up -d
 
 # Máy không có KVM
@@ -150,6 +171,9 @@ docker compose -f compose.yml up -d      # nhớ EMULATOR_ACCEL=off
 ```
 
 ### Lấy URL quick tunnel
+
+> Chỉ còn dùng trên máy dev. VPS production đã bỏ tunnel, địa chỉ cố định là
+> `https://app-relay.lutech.vn` — xem [domain-setup.md](domain-setup.md).
 
 URL **đổi mỗi lần khởi động lại**. Tài liệu này cố ý không ghi URL nào; lấy bản hiện hành:
 

@@ -32,7 +32,7 @@ flowchart TB
         PLAY["Google Play Store<br/>scrape HTML + cài app"]
         GOOG["Tài khoản Google<br/>phiên đăng nhập trong AVD"]
         SB["Supabase Postgres<br/>jobs · apps · workers<br/>job_events · artifacts"]
-        CF["Cloudflare Tunnel<br/>hoặc Caddy + Let's Encrypt"]
+        CF["Cloudflare + nginx<br/>app-relay.lutech.vn"]
         DH["Docker Hub<br/>image api + worker"]
     end
 
@@ -71,7 +71,7 @@ flowchart TB
 | **Google Play (app)** | intent `market://details?id=…`, thao tác chạm | app được cài lên emulator | job fail ở `installing` sau 6 phút |
 | **Tài khoản Google** | — | quyền Install trên emulator | mất phiên → mọi job fail; phải đăng nhập tay qua noVNC |
 | **Supabase Postgres** | SQL qua PostgREST, dùng `sb_secret` | trạng thái job, metadata | `/system/status` báo `database: error`; API không nhận job |
-| **Cloudflare Tunnel** | kết nối hướng ra ngoài | URL public | đối tác không gọi được; nội bộ vẫn chạy |
+| **Cloudflare + nginx** | HTTPS vào `app-relay.lutech.vn`, hạ về HTTP qua hai lớp nginx | đường public cố định | đối tác không gọi được; nội bộ vẫn chạy — soi từng lớp ở [runbook.md §5](runbook.md) |
 | **Docker Hub** | — | image lúc deploy | không deploy được bản mới; bản đang chạy vẫn sống |
 
 ## 5. Dữ liệu qua ranh giới

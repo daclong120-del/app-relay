@@ -86,6 +86,9 @@ app-relay/
 │   ├── .env.api.example
 │   ├── .env.worker.example
 │   ├── README.md
+│   ├── nginx/                          # cửa vào production — app-relay.lutech.vn
+│   │   ├── app-relay.conf              # vhost cài lên nginx của VM
+│   │   └── install.sh                  # cài + nginx -t + reload + tự kiểm
 │   ├── caddy/Caddyfile
 │   └── supabase-local/
 │       ├── 00-roles.sh

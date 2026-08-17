@@ -6,6 +6,27 @@ Format: `Added` / `Changed` / `Fixed` / `Removed`.
 
 ---
 
+## 2026-08-17
+
+### Added
+
+- **`deploy/nginx/` — cửa vào production bằng tên miền cố định `app-relay.lutech.vn`.** `app-relay.conf` là vhost cài lên nginx của VM, `install.sh` lo sao lưu bản cũ → `nginx -t` → reload → tự kiểm ba thứ (health 200, `/internal/` 404, Host lạ 444). Trước đây cấu hình nginx chỉ tồn tại dưới dạng file sửa tay trong `/etc/nginx` trên máy, dựng lại máy là mất; giờ nó nằm trong repo.
+- **Block `server_name _; return 444` chặn Host lạ.** nginx lấy server block nạp đầu tiên làm `default_server` cho cổng 80, nên trước đó **mọi** request với Host bất kỳ — kể cả scan từ LAN — đều được proxy thẳng vào API. Đo được ngày 2026-08-17: `curl -H 'Host: khong-ton-tai.example' http://127.0.0.1/v1/health` trả `200`.
+- `docs/runbook.md §5` — bảng chẩn đoán bốn lớp (Cloudflare → nginx host → nginx VM → API) với một lệnh `curl` cho mỗi lớp, đọc mã trả về là biết lớp nào hỏng. Kèm mẹo phân định nhanh nhất: `/var/log/nginx/app-relay.access.log` trống nghĩa là request chưa từng tới VM.
+
+### Changed
+
+- **BREAKING — địa chỉ giao cho đối tác đổi sang `https://app-relay.lutech.vn/v1`.** Đường ra Internet chuyển từ Cloudflare Quick Tunnel (URL `*.trycloudflare.com` ngẫu nhiên, **đổi sau mỗi lần restart**) sang tên miền cố định đi qua Cloudflare → nginx máy host `79.108.216.178` → nginx VM `10.10.10.168` → `api:5500`. Quick tunnel về đúng vai trò của nó: chỉ dùng cho máy dev sau NAT.
+- `docs/domain-setup.md` viết lại. Bản cũ mô tả Cloudflare Tunnel như đường chính thức và không hề nhắc tới hai lớp nginx đang thực sự nằm trên đường đi. Bản mới vẽ đúng bốn lớp, ghi rõ lớp nào thuộc repo này (nginx VM) và lớp nào phải nhờ bên hạ tầng (nginx host, cấu hình Cloudflare).
+- `docs/environment.md`, `features.md`, `context.md`, `security.md`, `folder-struc.md` cập nhật theo: VPS production **không chạy Caddy** — nginx cài thẳng trên máy đã giữ cổng 80, `COMPOSE_PROFILES` để trống.
+
+### Fixed
+
+- **Link tải artifact giao cho đối tác ra `http://` thay vì `https://`.** API dựng URL bằng `${req.protocol}://${req.get('host')}` với `trust proxy` bật, tức đọc `X-Forwarded-Proto`. Chặng Cloudflare → host → VM chạy HTTP trần nên `$scheme` ở nginx là `http`, và đối tác gọi vào bằng HTTPS lại nhận về link HTTP. Sửa bằng cách ghim hằng số `proxy_set_header X-Forwarded-Proto https` — đúng vì đường duy nhất từ Internet vào luôn là HTTPS qua Cloudflare. Chữ ký HMAC không dính host nên link đã phát không hỏng.
+- `/internal/` ở nginx trả `404` thay vì `403`, khớp với Caddyfile: `403` xác nhận cho người ngoài biết đường dẫn có tồn tại.
+
+---
+
 ## 2026-08-12
 
 ### Added

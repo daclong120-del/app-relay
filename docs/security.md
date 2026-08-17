@@ -224,7 +224,7 @@ Hiện code **không** log thứ nào trong số đó. Giữ nguyên như vậy 
 
 Không có gì mã hoá khi lưu (at rest). APK và listing là dữ liệu công khai lấy từ Play Store. Thứ duy nhất nhạy cảm trên đĩa là volume `worker-avd` (phiên Google) — bảo vệ bằng quyền hệ thống, không bằng mã hoá.
 
-TLS trên đường truyền do Caddy hoặc Cloudflare lo. API bản thân nó chạy HTTP trần và **chỉ bind loopback**.
+TLS trên đường truyền do Cloudflare lo và kết thúc ở đó; chặng Cloudflare → nginx host → nginx VM → API chạy HTTP trần trong mạng riêng. API bản thân nó **chỉ bind loopback** (`127.0.0.1:5500`), không phơi ra LAN.
 
 ---
 
@@ -296,7 +296,9 @@ Chạy hết trước khi đưa `BASE_URL` cho bên ngoài.
 
 - [ ] `docker compose ps` cho thấy cổng 5500 và 6080 **chỉ** bind `127.0.0.1`
 - [ ] noVNC không truy cập được từ ngoài (`curl http://<IP-public>:6080` phải fail)
-- [ ] Chỉ một trong ba: Caddy `production`, tunnel `quick`, tunnel `named`
+- [ ] Chỉ một đường ra ngoài: nginx trên máy, hoặc Caddy `production`, hoặc tunnel `quick`/`named` — không bao giờ hai cái cùng lúc
+- [ ] nginx có block `server_name _; return 444` để Host lạ không lọt vào API
+- [ ] `curl -H 'Host: <domain>' http://127.0.0.1/internal/v1/jobs/claim` trả `404`
 - [ ] Supabase self-host: cổng 54322 chỉ loopback
 
 **Database**

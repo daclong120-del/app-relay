@@ -237,11 +237,11 @@ Bật/tắt màn hình bằng `deploy/gui.sh on|off` — tắt GUI **không** l�
 | Chọn overlay bằng `.env` | `COMPOSE_FILE` + `COMPOSE_PROFILES` — sau bootstrap chỉ còn gõ `docker compose ps` |
 | Bootstrap một lệnh | `deploy/bootstrap.sh` — kiểm máy, sinh secret bằng `openssl rand`, tự ký JWT `service_role`, build, up, chờ healthy, smoke test. **Idempotent** |
 | Postgres self-host | Không phụ thuộc Supabase Cloud |
-| Đường ra Internet | Cloudflare Tunnel (quick + named), `deploy/compose.tunnel.yaml` |
+| Đường ra Internet | `https://app-relay.lutech.vn` — Cloudflare → nginx host → nginx VM, cấu hình ở `deploy/nginx/app-relay.conf` |
 | Xoay log | `compose.prod.yaml`: json-file 10m × 5 cho cả 6 service |
 | Tắt máy an toàn | `stop_grace_period: 120s` cho worker để emulator kịp ghi userdata xuống đĩa |
 
-Caddy còn trong repo nhưng đã **xuống hàng thay thế** — đường chính thức là Cloudflare Tunnel, lý do ở [domain-setup.md](domain-setup.md).
+Caddy và Cloudflare Tunnel đều còn trong repo nhưng đã **xuống hàng thay thế**: Caddy dành cho VPS chưa có nginx sẵn, tunnel dành cho máy dev sau NAT. Đường chính thức của production là domain + nginx, lý do ở [domain-setup.md §8](domain-setup.md).
 
 ### 3.12 🟨 CI/CD — 4 job
 

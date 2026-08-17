@@ -9,10 +9,13 @@ Viết theo dạng **triệu chứng → hành động**. Dựng từ máy trắ
 Mọi lệnh dưới đây giả định:
 
 ```bash
-cd /opt/app-relay/deploy
+cd /root/app-relay/deploy
 
-# Thêm/bớt overlay đúng môi trường đang chạy
-C="docker compose -f compose.yml -f compose.kvm.yaml -f compose.supabase.yaml -f compose.tunnel.yaml --profile quick"
+# VPS hiện tại: COMPOSE_FILE trong .env đã lo overlay, không cần cờ -f
+C="docker compose"
+
+# Máy dev còn chạy quick tunnel thì thêm overlay và profile:
+# C="docker compose -f compose.yml -f compose.kvm.yaml -f compose.supabase.yaml -f compose.tunnel.yaml --profile quick"
 
 T=$(grep '^API_TOKEN=' .env.api | cut -d= -f2-)
 ```
@@ -48,7 +51,7 @@ flowchart TD
     H -->|"hỏng"| LOG
     H -->|"ok"| EXT{"Gọi từ ngoài được?"}
 
-    EXT -->|"không"| TUN["tunnel/caddy chết<br/>hoặc URL đã đổi — §5"]
+    EXT -->|"không"| TUN["đường ra ngoài đứt<br/>soi từng lớp — §5"]
     EXT -->|"được"| JOB{"Job có chạy?"}
 
     JOB -->|"kẹt ở queued"| Q{"worker online?"}
@@ -133,7 +136,43 @@ Container nào kẹt thì ép tạo lại: `$C up -d --force-recreate`.
 
 ---
 
-## 5. Tunnel / đường ra ngoài
+## 5. Đường ra ngoài
+
+### VPS production — bốn lớp, soi từ ngoài vào
+
+`https://app-relay.lutech.vn` đi qua Cloudflare → nginx máy host
+`79.108.216.178` → nginx VM `10.10.10.168` → `127.0.0.1:5500`. Bốn lệnh dưới đây
+dừng đúng ở lớp hỏng; sơ đồ và cách sửa từng lớp ở
+[domain-setup.md](domain-setup.md).
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' https://app-relay.lutech.vn/v1/health                              # lớp 1
+curl -sS -o /dev/null -w '%{http_code}\n' -H 'Host: app-relay.lutech.vn' http://79.108.216.178/v1/health     # lớp 2
+curl -sS -o /dev/null -w '%{http_code}\n' -H 'Host: app-relay.lutech.vn' http://127.0.0.1/v1/health          # lớp 3, chạy trên VM
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5500/v1/health                                    # lớp 4, chạy trên VM
+```
+
+| Đọc được gì | Nghĩa là | Làm gì |
+|---|---|---|
+| lớp 1 ra `403` + header `Cf-Mitigated: challenge` | Cloudflare bật challenge, chưa tới máy nào | tắt Bot Fight Mode cho hostname — [domain-setup.md §5](domain-setup.md) |
+| lớp 1 hỏng, lớp 2 ra `404` | máy host chưa có vhost cho tên miền | [domain-setup.md §4](domain-setup.md) |
+| lớp 2 hỏng, lớp 3 ok | máy host không tới được `10.10.10.168:80` | bên hạ tầng kiểm đường mạng nội bộ |
+| lớp 3 kết nối đứt (curl `000`) | Host không khớp `server_name` → rơi vào block `return 444` | gõ đúng tên miền, hoặc `nginx -T \| grep server_name` |
+| lớp 3 hỏng, lớp 4 ok | nginx VM sai config | `nginx -t` rồi `sudo /root/app-relay/deploy/nginx/install.sh` |
+| lớp 4 hỏng | API mới là thứ chết | quay lại §4 |
+
+**`/var/log/nginx/app-relay.access.log` trống = request chưa từng tới VM.** Đây
+là cách phân định nhanh nhất giữa "lỗi của mình" và "lỗi của lớp trên".
+
+Đối tác báo `504` mà lớp 3 và 4 đều ok: gần như luôn là timeout ở lớp host. Job
+emulator mất ~60s, đúng mốc mặc định của nginx — cả hai lớp nginx phải cùng đặt
+`proxy_read_timeout 300s`.
+
+Link tải artifact trả về `http://` thay vì `https://`: thiếu
+`proxy_set_header X-Forwarded-Proto https` ở nginx VM, xem
+[domain-setup.md §3](domain-setup.md).
+
+### Máy dev — tunnel
 
 **Quick tunnel đổi URL mỗi lần khởi động lại.** URL cũ chết ngay.
 
@@ -144,11 +183,9 @@ $C logs cloudflared-quick 2>&1 \
 
 `tail -1`, không phải `head -1` — cloudflared in URL mới mỗi lần restart, bản đầu trong log đã chết.
 
-Sau khi có URL mới: **báo đối tác**. Đó là lý do không hardcode URL vào tài liệu hay code.
-
 Named tunnel không đổi URL. Nó chết thì kiểm `CLOUDFLARE_TUNNEL_TOKEN` và `$C logs cloudflared-named`.
 
-Caddy không xin được cert thì kiểm: cổng 80/443 mở chưa, `DOMAIN` trỏ đúng IP chưa, `$C logs caddy`.
+Caddy không xin được cert thì kiểm: cổng 80/443 mở chưa, `DOMAIN` trỏ đúng IP chưa, `$C logs caddy`. Trên VPS hiện tại Caddy **không chạy** — nginx giữ cổng 80.
 
 ---
 
